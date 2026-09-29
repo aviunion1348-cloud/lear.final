@@ -21,6 +21,7 @@ import ConsoleIgnition from './components/fx/ConsoleIgnition';
 import SectionTransition from './components/fx/SectionTransition';
 import SubsectionChoreography from './components/fx/SubsectionChoreography';
 import PointerSpotlight from './components/fx/PointerSpotlight';
+import CommandPalette, { type NavCommand } from './components/fx/CommandPalette';
 import { LearProvider, useLear } from './context/LearContext';
 import { logAnimationRegistry } from './lib/animationRegistry';
 import { SFX_COUNT } from './lib/soundEngine';
@@ -88,6 +89,18 @@ function AppContent() {
     } catch {}
   }, []);
 
+  const navCommands: NavCommand[] = [
+    ['dashboard', 'Go to Dashboard', 'home overview health kpi'],
+    ['chat', 'Go to Chat', 'copilot ask ai assistant'],
+    ['projects', 'Go to Projects', 'repos services'],
+    ['integrations', 'Go to Integrations', 'connectors credentials aws gcp'],
+    ['activity', 'Go to Activity Log', 'events audit history'],
+    ['notifications', 'Go to Notifications', 'alerts slack email'],
+    ['settings', 'Go to Settings', 'config preferences sound'],
+  ].map(([id, title, keywords]) => ({
+    id, title, keywords, run: () => setActiveTab(id),
+  }));
+
   const handleSetupComplete = () => {
     setIsSetupComplete(true);
     checkConfig();
@@ -146,6 +159,10 @@ function AppContent() {
             onClose={closeChat}
             serviceContext={chatContext}
           />
+
+          {/* Cmd/Ctrl+K — 1,557 playbooks + every section, one keystroke away.
+              The catalogue is dynamically imported on first open. */}
+          <CommandPalette navCommands={navCommands} />
 
           {/* Reveals every panel inside every section as it comes into view.
               Renders nothing; fail-visible if it never runs. */}
