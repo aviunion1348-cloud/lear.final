@@ -1,3 +1,10 @@
+param(
+  # -Local installs from the checkout you are standing in instead of
+  # downloading the archive, so the browser download-reputation warning
+  # never gets a chance to fire. See INSTALL.md.
+  [switch]$Local
+)
+
 <#
     LEAR — ONE-COMMAND INSTALLER
     ============================================================================
@@ -75,6 +82,20 @@ if ([int](($nodeV -replace '^v','') -split '\.')[0] -lt 18) {
 }
 Write-Ok "Node: $nodeV"
 
+if ($Local) {
+    # ---- 2+3. local mode: nothing to download, nothing to extract -----------
+    Write-Host ''
+    Write-Gold '[2/7] Local mode - skipping download'
+    Write-Dim  "      installing from $(Get-Location)"
+    if (-not (Test-Path 'pyproject.toml')) {
+        Write-Err 'Not a Lear checkout: pyproject.toml missing'; return
+    }
+    Write-Ok 'Using existing checkout'
+    Write-Host ''
+    Write-Gold '[3/7] Local mode - skipping extract'
+    Write-Ok 'Nothing to extract'
+} else {
+
 # ---- 2. download ------------------------------------------------------------
 Write-Host ''
 Write-Gold "[2/7] Downloading $ZipName"
@@ -97,6 +118,7 @@ Expand-Archive -Path $zipPath -DestinationPath (Get-Location) -Force
 if (-not (Test-Path $Target)) { Write-Err "Extract failed - $Target not found"; return }
 Write-Ok "Extracted to $Target"
 Set-Location $Target
+}
 
 # ---- 4. python backend ------------------------------------------------------
 Write-Host ''

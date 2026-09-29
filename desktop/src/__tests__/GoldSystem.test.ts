@@ -3,7 +3,7 @@
    Guards the numbers we publish and the rules that keep the UI at 100fps.
    ========================================================================== */
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SFX_COUNT, SFX_NAMES, SFX_FAMILIES, MAX_VOLUME, DEFAULT_VOLUME } from '../lib/soundEngine';
 import {
@@ -400,12 +400,18 @@ describe('perf HUD grades against the real display (120fps target)', () => {
 
 describe('4K backdrop plates', () => {
   const tsx = read('src/components/fx/LiveVideoBackdrop.tsx');
+  const plates = tsx.match(/\/media\/plate-[a-z-]+\.png/g) ?? [];
 
-  it('rotates through the full set of gold/black plates', () => {
-    for (const p of ['plate-foundry', 'plate-datacore', 'plate-reactor',
-                     'plate-assembly', 'plate-server-vault', 'plate-topology',
-                     'plate-orbital', 'plate-nebula-gold', 'plate-monolith-gold']) {
-      expect(tsx).toContain(p);
+  it('rotates through the full cinematic plate set', () => {
+    expect(plates.length).toBeGreaterThanOrEqual(19);
+    expect(new Set(plates).size).toBe(plates.length);
+  });
+
+  it('every referenced plate actually exists on disk', () => {
+    // A missing plate is an invisible bug - the layer just renders empty.
+    for (const p of plates) {
+      const file = resolve(__dirname, '../../public', p.replace(/^\//, ''));
+      expect(existsSync(file), `missing asset ${p}`).toBe(true);
     }
   });
 

@@ -44,6 +44,16 @@ const PLATES = [
   '/media/plate-orbital.png',
   '/media/plate-nebula-gold.png',
   '/media/plate-monolith-gold.png',
+  '/media/plate-tunnel.png',
+  '/media/plate-bridge-night.png',
+  '/media/plate-turbine.png',
+  '/media/plate-liquid-gold.png',
+  '/media/plate-hangar.png',
+  '/media/plate-silicon.png',
+  '/media/plate-observatory.png',
+  '/media/plate-vault-door.png',
+  '/media/plate-cargo.png',
+  '/media/plate-lab.png',
 ];
 // Optional real-video sources (WebM preferred, MP4 fallback). Present = used.
 const VIDEO_SOURCES = [
