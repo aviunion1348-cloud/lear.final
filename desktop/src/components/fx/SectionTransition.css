@@ -1,0 +1,149 @@
+/* =============================================================================
+   SECTION TRANSITION — every console subsection gets the same entrance
+   -----------------------------------------------------------------------------
+   Budget: entrance completes in 420ms, content readable by ~180ms.
+   Only transform / opacity / filter / clip-path are animated.
+   ========================================================================== */
+
+.sec {
+  position: relative;
+  min-height: 100%;
+  isolation: isolate;
+  --sec-accent: 232, 180, 74;
+}
+
+/* ---- 1. the gold light-bar that wipes across on entry ------------------- */
+.sec-wipe {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background: linear-gradient(104deg,
+    transparent 38%,
+    rgba(var(--sec-accent), 0.20) 47%,
+    rgba(255, 250, 240, 0.30) 50%,
+    rgba(var(--sec-accent), 0.20) 53%,
+    transparent 62%);
+  background-size: 260% 100%;
+  animation: sec-wipe 620ms var(--ease-swift) both;
+  will-change: background-position, opacity;
+}
+
+@keyframes sec-wipe {
+  0%   { background-position: 165% 0; opacity: 0; }
+  12%  { opacity: 1; }
+  80%  { opacity: 0.7; }
+  100% { background-position: -70% 0; opacity: 0; }
+}
+
+/* ---- 2. accent edge that draws down the left of the section ------------- */
+.sec-edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  z-index: 4;
+  pointer-events: none;
+  background: linear-gradient(180deg,
+    transparent,
+    rgba(var(--sec-accent), 0.85) 18%,
+    rgba(255, 250, 240, 0.9) 50%,
+    rgba(var(--sec-accent), 0.85) 82%,
+    transparent);
+  box-shadow: 0 0 18px rgba(var(--sec-accent), 0.5);
+  transform-origin: 50% 0%;
+  animation: sec-edge 700ms var(--ease-decelerate) both;
+  will-change: transform, opacity;
+}
+
+@keyframes sec-edge {
+  0%   { transform: scaleY(0); opacity: 0; }
+  40%  { transform: scaleY(1); opacity: 1; }
+  100% { transform: scaleY(1); opacity: 0.25; }
+}
+
+/* ---- 3. the section itself rises, un-blurs and settles ------------------ */
+.sec-body {
+  position: relative;
+  z-index: 1;
+  min-height: 100%;
+  animation: sec-body 420ms var(--ease-decelerate) both;
+  will-change: transform, opacity, filter;
+  transform-origin: 50% 0%;
+}
+
+@keyframes sec-body {
+  0%   { opacity: 0; transform: translate3d(0, 20px, 0) scale(0.988); filter: blur(7px); }
+  55%  { opacity: 1; }
+  100% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); filter: blur(0); }
+}
+
+/* ---- 4. cascade the section's own top-level children ------------------- */
+/* Capped at 10 so a long list never waits on a stagger — item 11+ lands
+   with the rest of the block instead of trailing behind it.               */
+.sec-body > * > * {
+  animation: sec-child 380ms var(--ease-decelerate) both;
+}
+.sec-body > * > *:nth-child(1)  { animation-delay: 60ms; }
+.sec-body > * > *:nth-child(2)  { animation-delay: 88ms; }
+.sec-body > * > *:nth-child(3)  { animation-delay: 116ms; }
+.sec-body > * > *:nth-child(4)  { animation-delay: 144ms; }
+.sec-body > * > *:nth-child(5)  { animation-delay: 172ms; }
+.sec-body > * > *:nth-child(6)  { animation-delay: 200ms; }
+.sec-body > * > *:nth-child(7)  { animation-delay: 228ms; }
+.sec-body > * > *:nth-child(8)  { animation-delay: 256ms; }
+.sec-body > * > *:nth-child(9)  { animation-delay: 284ms; }
+.sec-body > * > *:nth-child(n+10) { animation-delay: 300ms; }
+
+@keyframes sec-child {
+  0%   { opacity: 0; transform: translate3d(0, 14px, 0); }
+  100% { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+/* ---- 5. settle: hand the compositor layers back ------------------------- */
+/* Without this we would hold a promoted layer per section for the life of
+   the app, which is exactly how a "smooth" UI slowly becomes a heavy one.  */
+.sec.sec-settled .sec-body,
+.sec.sec-settled .sec-wipe,
+.sec.sec-settled .sec-edge {
+  will-change: auto;
+}
+.sec.sec-settled .sec-body > * > * {
+  animation: none;
+}
+.sec.sec-settled .sec-wipe {
+  display: none;
+}
+
+/* ---- ambient: a faint accent bloom behind the active section ------------ */
+.sec::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background: radial-gradient(90% 60% at 12% 0%,
+    rgba(var(--sec-accent), 0.07) 0%,
+    rgba(0, 0, 0, 0) 62%);
+  animation: sec-bloom 520ms var(--ease-decelerate) both;
+}
+
+@keyframes sec-bloom {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ---- reduced motion: everything is instant and static ------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .sec-wipe,
+  .sec-edge { display: none; }
+  .sec-body,
+  .sec-body > * > *,
+  .sec::before {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+  }
+}

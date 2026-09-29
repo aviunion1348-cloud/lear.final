@@ -1,0 +1,712 @@
+"""REPL stage 2 (PRASH_V2.md §6b): free-text intent -> command resolution.
+
+Stage 1 made the REPL a persistent session with context; stage 2 lets the
+user type the way they'd talk to a person instead of the way they'd call a
+CLI: "my api pod is sick, fix it" -> `fix prash-demo/api-...`. Deliberately
+narrow and honest: if intent can't be resolved with real confidence, this
+module says so and the caller asks a clarifying question rather than guessing
+and running the wrong command against real infrastructure.
+
+Two-stage by design:
+    resolve(text, session) -> Suggestion | Clarify | None
+        Suggestion  -> argv to run (already context-resolved) + an explanation
+        Clarify     -> a question to ask, with concrete known options
+        None        -> genuinely couldn't resolve it, fast or otherwise
+
+The fast path (_verb_hit + the target regexes below) is pure and free --
+zero latency, zero API cost, unit-testable headlessly. When it doesn't
+recognize the text at all (Milestone 2, 2026-08-24), resolve() falls back
+to routing it through the same tool-calling brain the diagnosis pipeline
+uses (prash/brain/kimi_client.py's call_with_tool), built dynamically from
+the real provider/action registries so a new connector never needs a
+hand-added verb here. That fallback does real I/O and can fail (missing
+credentials, model/network trouble) -- it degrades to None on any failure,
+same contract as the fast path, never a crash.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import re
+from dataclasses import dataclass, field
+
+# A pod-ish token: lowercase start, dashes allowed, not too long. Anything
+# containing "/" is treated as an already-qualified target (ns/pod or
+# owner/repo) and never needs resolving.
+_TARGETISH = re.compile(r"^[a-z0-9][a-z0-9-_.]{1,60}/[a-z0-9][a-z0-9-_.]{1,60}$")
+
+# A bare resource name must look like one -- k8s names are dash-y/nummer-y
+# (api-7f9d, broken-app, web-3). Plain words like "api", "fix" or "pr" are
+# talk, not targets; treating them as targets produces wrong guesses.
+_BAREISH = re.compile(r"^[a-z0-9][a-z0-9-]{2,40}$")
+
+
+def _looks_like_bare_resource(w: str) -> bool:
+    return bool(_BAREISH.fullmatch(w)) and ("-" in w or any(c.isdigit() for c in w))
+
+
+# A bare resource name for a pod-needing verb (fix/restart/rollback/stats)
+# is exactly as plausible as an AWS/GCP instance name as it is a k8s pod --
+# "bithub-backend" and "broken-app" have the identical shape. Found live
+# 2026-09-17: "bithub-backend seems down, nginx might not be running, can
+# you check and fix it" matched the "fix" verb and got blindly qualified as
+# a kubernetes pod, even though the sentence explicitly names an in-instance
+# service (nginx), not a pod. The fast path has no provider-detection logic
+# at all (only the LLM path does) -- these words are a cheap, deliberately
+# imprecise signal to bail to the LLM rather than confidently guess wrong.
+_NON_K8S_INSTANCE_HINTS = re.compile(
+    r"\b(nginx|apache|ec2|instance|compute engine|droplet|vm|server|proxy|aws|gcp|azure)\b"
+)
+
+# Words that are talk, not entity. Everything else that looks podish and
+# isn't on this list is a candidate target.
+_STOPWORDS = {
+    "the", "a", "an", "my", "your", "is", "are", "was", "were", "be",
+    "pod", "pods", "app", "application", "service", "deployment", "cluster",
+    "broken", "sick", "down", "stuck", "crash", "crashing", "crashlooping",
+    "failed", "failing", "and", "or", "but", "please", "can", "could", "you",
+    "it", "that", "this", "with", "from", "for", "now", "quickly", "again",
+}
+
+
+@dataclass
+class Clarify:
+    """A question to ask the user, with concrete known options."""
+
+    question: str
+    options: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Suggestion:
+    """A resolved command line, ready to run."""
+
+    argv: list[str]
+    explain: str
+
+
+class _Context:
+    """The slice of REPL session state intent parsing needs."""
+
+    def __init__(self, namespace: str | None = None, pod: str | None = None,
+                 last_target: str | None = None) -> None:
+        self.namespace = namespace
+        self.pod = pod
+        self.last_target = last_target
+
+    @classmethod
+    def from_session(cls, session) -> _Context:
+        return cls(session.namespace, session.pod, session.last_target)
+
+
+def _words(text: str) -> list[str]:
+    return [w.lower().strip(".,;:!?") for w in text.split()]
+
+
+def _targets_in(text: str) -> list[str]:
+    """Candidate target tokens, in the order they appeared. Qualified
+    ns/pod and owner/repo targets win outright; bare podish words are the
+    raw material for resolving against the session."""
+    qualified, bare = [], []
+    for w in _words(text):
+        if _TARGETISH.fullmatch(w):
+            qualified.append(w)
+        elif _looks_like_bare_resource(w) and w not in _STOPWORDS:
+            bare.append(w)
+    return qualified + bare
+
+
+# "what happened" style timeline questions -> get_stats (the `stats` verb).
+# Kept separate from the word loop so they can be gated: a line that also
+# carries an explicit action verb ("diagnose what happened") is a fix, not a
+# read — stats must never hijack an execute intent.
+_STATS_PHRASES = (
+    "what's been happening", "whats been happening", "what has been happening",
+    "what happened", "been happening", "recent events", "event history",
+    "show me the events", "show me the history", "show me the timeline",
+)
+_ACTION_WORDS = ("fix", "diagnose", "restart", "reboot", "rollback", "revert")
+
+
+def _verb_hit(text: str) -> str | None:
+    """Return the intent verb, or None if the text doesn't read as intent."""
+    low = text.lower()
+    # Longer phrases first so "open a pr" wins over a bare "pr".
+    if "open a pr" in low or "open pr" in low or "open a pull request" in low:
+        return "open-pr"
+    if "apply the ci fix" in low or "apply the fix" in low or "apply ci fix" in low:
+        return "apply-ci-fix"
+    if "what can you do" in low or "what do you do" in low or "list actions" in low:
+        return "actions"
+    # "keep an eye on X" is the canonical proactive-monitor phrasing (spec §4a)
+    # and carries no verb keyword of its own -> map it to watch on the fast path.
+    if "keep an eye on" in low or "keeping an eye on" in low or "eye on" in low:
+        return "watch"
+    # time-series read ("what's been happening with X") -> stats, but never
+    # when the line also asks for a write/diagnosis action.
+    if any(p in low for p in _STATS_PHRASES) and not any(w in low for w in _ACTION_WORDS):
+        return "stats"
+    for word, verb in (
+        ("restart", "restart"), ("reboot", "restart"), ("fix", "fix"),
+        ("diagnose", "fix"), ("watch", "watch"), ("monitor", "watch"),
+        ("rollback", "rollback"), ("revert", "rollback"),
+        ("audit", "audit"), ("actions", "actions"), ("config", "config"),
+        ("circuit", "circuit"), ("stats", "stats"), ("timeline", "stats"),
+    ):
+        if word in low:
+            return verb
+    return None
+
+
+def _needs_target(verb: str) -> str | None:
+    """What kind of target each verb needs: 'pod', 'repo', or None."""
+    return {
+        "fix": "pod",
+        "restart": "pod",
+        "rollback": "pod",
+        "stats": "pod",
+        "open-pr": "repo",
+        "apply-ci-fix": "repo",
+    }.get(verb)
+
+
+def _resolve_target(kind: str, targets: list[str], ctx: _Context) -> str | None:
+    """Turn raw candidate tokens into one concrete target, or None."""
+    for t in targets:
+        if "/" in t:
+            return t
+    if not targets:
+        # No explicit entity: a remembered target is the only safe default.
+        if kind == "repo":
+            return None  # never guess a repo
+        return ctx.last_target or (f"{ctx.namespace}/{ctx.pod}" if ctx.namespace and ctx.pod else None)
+    # Bare name: qualify with the remembered namespace if we have one.
+    if ctx.namespace:
+        return f"{ctx.namespace}/{targets[0]}"
+    if kind == "pod":
+        # Found live 2026-09-17: server.py's /api/chat[/stream] builds a
+        # fresh _Context() with no namespace on every request (there's no
+        # REPL session to remember one in), so a perfectly natural message
+        # like "the oom-app pod in prash-demo keeps crashing, fix it" fast-
+        # pathed straight to `prash fix oom-app` -- fix.py's
+        # split_k8s_target() then rejected it outright with "expected
+        # <namespace>/<pod> target, got 'oom-app'", even though the pod
+        # genuinely exists and the user even named the namespace in the
+        # same sentence. Falling back to the configured default namespace
+        # (same one KubernetesConnector.locate() already defaults to) beats
+        # handing fix.py a target guaranteed to fail its own parsing.
+        from .connectors.kubernetes import _default_namespace
+        return f"{_default_namespace(None)}/{targets[0]}"
+    return targets[0]
+
+
+def _known_options(ctx: _Context) -> list[str]:
+    opts: list[str] = []
+    for t in (ctx.last_target, f"{ctx.namespace}/{ctx.pod}" if ctx.namespace and ctx.pod else None):
+        if t and t not in opts:
+            opts.append(t)
+    return opts
+
+
+def _provider_hit(text: str, provider: str) -> Suggestion | Clarify | None:
+    """Connector-aware fast path, checked before the generic verb table.
+
+    The generic table maps "watch"/"monitor" straight to the kubernetes
+    watcher no matter what's being watched, and has no route for "what
+    happened on datadog/pagerduty" — both wrong for observability targets.
+    Only fires when the provider name appears explicitly, so every other
+    phrase keeps its existing behavior; anything unrecognized falls through
+    to the LLM stage as usual. Ask-phrases are checked BEFORE watch/monitor:
+    in "what happened on datadog monitor cpu-high", "monitor" is a noun —
+    the thing being asked about — not a request to start watching."""
+    if provider not in _words(text):
+        return None
+    low = text.lower()
+    targets = [t for t in _targets_in(text) if t != provider]
+    target = targets[0] if targets else None
+    if any(phrase in low for phrase in ("what happened", "stats", "events", "incidents", "investigate", "history", "timeline", "alerts")):
+        if target:
+            return Suggestion(["investigate", target, "--provider", provider], f"pulling the {provider} timeline for {target}")
+        return Clarify(f"Which {provider} target should I investigate? (name or id)", [])
+    if "watch" in low or "monitor" in low:
+        argv = ["watch", "--provider", provider]
+        if target:
+            argv += ["--resource", target]
+        return Suggestion(argv, f"watching {provider} state for changes")
+    return None
+
+
+def _datadog_hit(text: str) -> Suggestion | Clarify | None:
+    return _provider_hit(text, "datadog")
+
+
+def _pagerduty_hit(text: str) -> Suggestion | Clarify | None:
+    return _provider_hit(text, "pagerduty")
+
+
+def resolve_fast_path(text: str, ctx: _Context) -> Suggestion | Clarify | None:
+    """The heuristic-only half of resolve() -- keyword/regex matching, no
+    LLM call. Split out 2026-09-16 for server.py's /api/chat/stream: that
+    handler is already async and does its own proper `await
+    _resolve_via_llm_async(...)` fallback, but was calling the full
+    synchronous resolve() for "step 1", which silently falls through to
+    _resolve_via_llm()'s thread-and-new-event-loop bridge whenever the
+    keyword table misses (exactly the "check ... for crash-looping pods"
+    case, since "check" isn't one of the ~12 hardcoded verbs). That bridge
+    is meant for repl.py/tui.py's plain synchronous callers, which have no
+    event loop of their own -- called from inside a FastAPI handler that
+    already has one running, it spins up a second asyncio event loop in a
+    background thread, and prash.brain.kimi_client's module-level cached
+    AsyncOpenAI client gets bound to whichever loop happens to construct
+    it first. asyncio.run() always closes its loop on return, so once that
+    background thread's call finished (success, failure, or its own 12s
+    timeout), the cached client was left holding a transport tied to a
+    dead loop -- and every later DeepSeek call in the process, including
+    the "real" one from chat_stream's own step 2 in the correct main loop,
+    failed with a generic, misleading "Connection error." Found live
+    2026-09-16: reproduced instantly through the real endpoint, could not
+    reproduce at all calling the exact same DeepSeek code standalone or via
+    a throwaway FastAPI debug endpoint -- the difference was always
+    whether resolve()'s LLM branch had run in a thread first."""
+    for provider_hit in (_datadog_hit, _pagerduty_hit):
+        hit = provider_hit(text)
+        if hit is not None:
+            return hit
+    verb = _verb_hit(text)
+    if verb is None:
+        return None
+
+    if verb == "watch":
+        # "keep an eye on prash-demo/api" -> watch that pod's namespace;
+        # a bare "watch" with no target falls back to the remembered one.
+        wtgt = _resolve_target("pod", _targets_in(text), ctx)
+        if wtgt and "/" in wtgt:
+            ns = wtgt.split("/", 1)[0]
+            return Suggestion(["watch", "--namespace", ns], f"watching namespace {ns}")
+        return Suggestion(["watch"], "watching the remembered namespace")
+    if verb == "actions":
+        return Suggestion(["actions"], "listing registered actions")
+    if verb == "config":
+        return Suggestion(["config"], "showing local config")
+    if verb == "circuit":
+        return Suggestion(["circuit", "status"], "showing circuit breaker state")
+    if verb == "audit":
+        return Suggestion(["audit", "--tail", "20"], "showing the latest audit entries")
+
+    kind = _needs_target(verb)
+    targets = _targets_in(text)
+
+    # Bail to the LLM (real provider detection) rather than confidently
+    # guess a kubernetes target for what reads like an AWS/GCP instance --
+    # see _NON_K8S_INSTANCE_HINTS. Only for a brand-new, unqualified target
+    # with no established session namespace; an already-"ns/pod" target or
+    # an ongoing k8s session context is unambiguous enough to trust as-is.
+    if (
+        kind == "pod" and targets and "/" not in targets[0] and not ctx.namespace
+        and _NON_K8S_INSTANCE_HINTS.search(text.lower())
+    ):
+        return None
+
+    target = _resolve_target(kind, targets, ctx)
+
+    if kind == "repo" and not target:
+        known = _known_options(ctx)
+        return Clarify(
+            f"Which repository should I {verb}? (e.g. `acme/widget`)",
+            known,
+        )
+    if kind == "pod" and not target:
+        known = _known_options(ctx)
+        return Clarify(
+            f"Which pod should I {verb}? (I know: {', '.join(known) or 'none yet — use `fix <ns>/<pod>` first'})",
+            known,
+        )
+
+    if verb == "fix":
+        return Suggestion(["fix", target], f"fixing {target}")
+    if verb == "restart":
+        return Suggestion(["run", "restart-pod", target], f"restarting {target}")
+    if verb == "rollback":
+        return Suggestion(["run", "rollback", target], f"rolling back {target}")
+    if verb == "stats":
+        return Suggestion(["stats", target], f"showing recent events for {target}")
+    if verb == "open-pr":
+        return Suggestion(["run", "open-pr", target], f"opening a PR against {target}")
+    if verb == "apply-ci-fix":
+        return Suggestion(["fix", target, "--ci"], f"diagnosing + fixing CI on {target}")
+    return None
+
+
+def resolve(text: str, ctx: _Context) -> Suggestion | Clarify | None:
+    """Parse free text into a command suggestion, a clarifying question, or
+    None (genuinely couldn't resolve it, fast or otherwise). Synchronous --
+    for repl.py/tui.py's plain callers with no event loop of their own.
+    An async caller that already has an event loop (server.py's
+    /api/chat/stream) should call resolve_fast_path() + await
+    _resolve_via_llm_async() directly instead of this, to avoid the
+    thread-and-new-event-loop bridge _resolve_via_llm() uses -- see
+    resolve_fast_path()'s docstring for why that matters."""
+    result = resolve_fast_path(text, ctx)
+    if result is not None:
+        return result
+    return _resolve_via_llm(text, ctx)
+
+
+def complete(verb: str, choice: str, ctx: _Context) -> Suggestion | None:
+    """Turn a clarifying answer into a concrete suggestion. `choice` is the
+    user's raw answer to a Clarify (a number picking a listed option, a bare
+    pod name, or a qualified target)."""
+    choice = choice.strip()
+    if _TARGETISH.fullmatch(choice):
+        target = choice
+    elif _looks_like_bare_resource(choice):
+        target = f"{ctx.namespace}/{choice}" if ctx.namespace else choice
+    else:
+        return None
+    if verb == "fix":
+        return Suggestion(["fix", target], f"fixing {target}")
+    if verb == "restart":
+        return Suggestion(["run", "restart-pod", target], f"restarting {target}")
+    if verb == "rollback":
+        return Suggestion(["run", "rollback", target], f"rolling back {target}")
+    if verb == "stats":
+        return Suggestion(["stats", target], f"showing recent events for {target}")
+    if verb == "open-pr":
+        return Suggestion(["run", "open-pr", target], f"opening a PR against {target}")
+    return None
+
+
+# ── Milestone 2: LLM fallback (2026-08-24) ─────────────────────────────────
+# Everything below only runs when the fast path above found no verb at all.
+
+import logging  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+_LLM_INTENT_TOOL_NAME = "resolve_repl_intent"
+
+
+def _build_intent_tool_schema() -> dict:
+    """Built at call time from the real registries (prash/cli.py's PROVIDERS
+    dict and the dispatcher's registered actions), not a second hand-written
+    list -- the exact thing that let the fast-path table drift out of sync
+    with 8 of 10 connectors in the first place. Imports are local: cli.py
+    doesn't import this module, but keeping the dependency one-directional
+    and deferred avoids ever having to think about it again."""
+    from .cli import PROVIDERS, _build_dispatcher
+    from .permissions import PermissionMode
+
+    providers = sorted(PROVIDERS.keys()) + ["kubernetes"]
+    dispatcher = _build_dispatcher(PermissionMode.ASK)
+    action_lines = [
+        f"  {aid} ({action.spec.risk_tier.value}): {action.spec.summary}"
+        for aid, action in sorted(dispatcher.available.items())
+    ]
+
+    return {
+        "name": _LLM_INTENT_TOOL_NAME,
+        "description": (
+            "Decide what a Prash user's free-text request maps to: reading "
+            "a resource's state, diagnosing+fixing a Kubernetes pod or CI "
+            "run, running one of the registered write actions below, one "
+            "of the plain utility commands, or -- if genuinely too "
+            "ambiguous to guess -- a clarifying question instead. Never "
+            "guess a target that wasn't stated or previously established; "
+            "ask instead."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "enum": ["investigate", "stats", "fix", "run", "watch", "audit", "actions", "config", "circuit", "clarify"],
+                    "description": (
+                        "investigate = read-only point-in-time state check on any provider "
+                        "('is it healthy right now'). "
+                        "stats = read-only event timeline for a resource ('what's been "
+                        "happening', 'show me recent events/history') -- a connector's "
+                        "get_stats. "
+                        "watch = start proactively monitoring a resource/namespace for new "
+                        "problems ('keep an eye on', 'notify me when'). "
+                        "fix = diagnose+propose a fix for a k8s pod (provider=kubernetes), "
+                        "a CI run (provider=github/gitlab), or an AWS/GCP instance "
+                        "(provider=aws/gcp) -- but for AWS/GCP this only sees the instance's "
+                        "own power state and CloudWatch/Cloud Monitoring metrics, NOT the "
+                        "health of services running inside it (nginx, an app process, etc). "
+                        "If the user describes an in-instance service being down (a site not "
+                        "responding, a proxy/app not running) rather than the instance itself, "
+                        "use run with action_id=execute-aws/execute-gcp and a command that "
+                        "checks and fixes that specific service instead -- fix will not see it. "
+                        "run = execute one of the registered write actions below -- this is "
+                        "also how you page/alert an on-call responder (use an *-alert action id), "
+                        "and how you check/restart an in-instance service on AWS/GCP (see "
+                        "`run_command` below). "
+                        "clarify = you cannot confidently resolve this -- ask instead."
+                    ),
+                },
+                "provider": {
+                    "type": "string",
+                    "enum": providers,
+                    "description": (
+                        "which connector this targets. Required for investigate/fix. Omit for "
+                        "run/watch/audit/actions/config/circuit. Only set this if the user said "
+                        "it, it's the only provider a stated action id could possibly belong to, "
+                        "or it's already known from context -- a resource's naming style (e.g. "
+                        "kebab-case vs Title Case) is NOT a reliable signal for which connector it "
+                        "lives in. If you cannot tell which connector, use command=clarify instead "
+                        "of guessing -- the same rule as `resource` and `action_id` below."
+                    ),
+                },
+                "resource": {
+                    "type": "string",
+                    "description": (
+                        "the target exactly as it should be typed on the command line: "
+                        "a namespace/pod, an owner/repo, a monitor or alert name, a project, etc. "
+                        "Only use a target the user actually said or that's already known from context -- never invent one."
+                    ),
+                },
+                "action_id": {
+                    "type": "string",
+                    "description": "only when command=run: the exact action id from this registered list (never invent one):\n" + "\n".join(action_lines),
+                },
+                "minutes": {"type": "integer", "description": "only for mute/silence-style actions, if the user gave a duration"},
+                "reason": {"type": "string", "description": "only for snyk-ignore-issue: the user's stated reason"},
+                "deployment_id": {"type": "string", "description": "only for vercel-rollback/-redeploy, if the user gave one"},
+                "run_command": {
+                    "type": "string",
+                    "description": (
+                        "only for action_id=execute-aws, execute-gcp, or exec (running a real "
+                        "shell command on an EC2 instance, a GCP Compute instance, or inside a "
+                        "k8s pod). The exact command to run, e.g. 'sudo systemctl restart "
+                        "nginx'. Pick a real, specific, minimal command that matches what the "
+                        "user described needs fixing or checking -- never something destructive "
+                        "or broader than asked (no wildcard deletes, no reboots, no changes to "
+                        "anything other than the service/resource actually named). This action "
+                        "always needs human approval before it runs, but the command shown for "
+                        "approval must already be the right one, not a placeholder."
+                    ),
+                },
+                "explanation": {
+                    "type": "string",
+                    "description": "one short, plain sentence describing what you're about to do -- shown to the user before it runs.",
+                },
+                "clarify_question": {
+                    "type": "string",
+                    "description": "only when command=clarify: the specific question to ask the user.",
+                },
+            },
+            "required": ["command", "explanation"],
+        },
+    }
+
+
+_INTENT_SYSTEM_PROMPT = (
+    "You are Prash's REPL intent resolver. A user typed a free-text line "
+    "that didn't match any known short command. Call resolve_repl_intent "
+    "with the single best interpretation. Be conservative: if the target "
+    "resource isn't stated and isn't in the remembered context below, use "
+    "command=clarify rather than guessing one. The same applies to the "
+    "provider/connector: if the user's line doesn't name or clearly imply "
+    "which connector a resource lives in, ask -- do not guess one just "
+    "because it's the first/most common provider. A resource's naming "
+    "style is not a reliable signal for which connector it belongs to. "
+    "Never invent a provider, action id, or resource that wasn't given "
+    "to you. "
+    "Pick the read verb that matches the question: 'is it healthy / what's "
+    "its state' -> investigate; 'what happened / what's been going on / show "
+    "recent events' -> stats; 'keep an eye on it / tell me when it breaks' -> "
+    "watch. To page or alert an on-call responder, use command=run with the "
+    "matching *-alert action id."
+)
+
+
+def _context_summary(ctx: _Context) -> str:
+    known = _known_options(ctx)
+    if not known:
+        return "No remembered targets yet."
+    return "Remembered from this session: " + ", ".join(known)
+
+
+def _args_to_suggestion_or_clarify(args: dict) -> Suggestion | Clarify | None:
+    command = args.get("command")
+    explanation = args.get("explanation", "").strip() or "doing that"
+
+    if command == "clarify":
+        question = args.get("clarify_question", "").strip() or "Which resource should I target?"
+        return Clarify(question)
+
+    if command in ("audit", "actions", "config", "circuit"):
+        argv = {"audit": ["audit", "--tail", "20"], "actions": ["actions"],
+                "config": ["config"], "circuit": ["circuit", "status"]}[command]
+        return Suggestion(argv, explanation)
+
+    resource = (args.get("resource") or "").strip()
+
+    if command == "watch":
+        # Proactive monitoring. k8s watches a namespace (--namespace); the
+        # other providers watch a named resource (--provider/--resource).
+        provider = args.get("provider")
+        if provider and provider != "kubernetes":
+            argv = ["watch", "--provider", provider]
+            if resource:
+                argv += ["--resource", resource]
+            return Suggestion(argv, explanation)
+        if resource:
+            ns = resource.split("/", 1)[0] if "/" in resource else resource
+            return Suggestion(["watch", "--namespace", ns], explanation)
+        return Suggestion(["watch"], explanation)
+
+    if command == "investigate":
+        if not resource:
+            return Clarify("Which resource should I investigate?")
+        provider = args.get("provider") or "github"
+        if provider == "kubernetes":
+            return None  # investigate has no kubernetes provider today (a real, separate gap)
+        return Suggestion(["investigate", resource, "--provider", provider], explanation)
+
+    if command == "stats":
+        if not resource:
+            return Clarify("Which resource's events should I show?")
+        provider = args.get("provider") or "kubernetes"
+        return Suggestion(["stats", resource, "--provider", provider], explanation)
+
+    if command == "fix":
+        if not resource:
+            return Clarify("Which pod or repo should I fix?")
+        provider = args.get("provider")
+        if provider in ("github", "gitlab"):
+            return Suggestion(["fix", resource, "--ci", "--provider", provider], explanation)
+        if provider in ("aws", "gcp"):
+            # Found live 2026-09-17: dropping the provider here isn't a
+            # no-op -- cmd_fix defaults to the kubernetes path
+            # (`provider = getattr(args, "provider", "kubernetes") or
+            # "kubernetes"`), which immediately rejects a bare instance
+            # name like "bithub-backend" with "expected <namespace>/<pod>
+            # target" -- exactly the failure mode this line was letting
+            # through undetected for every AWS/GCP fix request.
+            return Suggestion(["fix", resource, "--provider", provider], explanation)
+        return Suggestion(["fix", resource], explanation)
+
+    if command == "run":
+        action_id = (args.get("action_id") or "").strip()
+        if not action_id or not resource:
+            return Clarify(f"Run which action, on what? ({explanation})")
+        argv = ["run", action_id, resource]
+        if args.get("minutes") is not None:
+            argv += ["--minutes", str(args["minutes"])]
+        if args.get("reason"):
+            argv += ["--reason", str(args["reason"])]
+        if args.get("deployment_id"):
+            argv += ["--deployment-id", str(args["deployment_id"])]
+        if args.get("run_command"):
+            # Found live 2026-09-17: execute-aws/execute-gcp/exec were
+            # unreachable through chat at all -- cli.py's `run` subcommand
+            # has always had --command/--exec-command flags, but nothing
+            # in the LLM's tool schema or this argv builder ever populated
+            # them, so ctx.extra["command"] stayed empty and the action
+            # failed with "no command given" regardless of what the user
+            # asked for. `exec` (a k8s pod) takes --exec-command; the two
+            # instance-level actions take --command. (Named run_command,
+            # not command, to avoid colliding with the top-level `command`
+            # field that picks investigate/stats/fix/run/etc.)
+            flag = "--exec-command" if action_id == "exec" else "--command"
+            argv += [flag, str(args["run_command"])]
+        return Suggestion(argv, explanation)
+
+    return None
+
+
+async def _call_llm_intent(user_prompt: str) -> Suggestion | Clarify | None:
+    from .brain.kimi_client import call_with_tool
+
+    args = await call_with_tool(
+        system_prompt=_INTENT_SYSTEM_PROMPT,
+        user_prompt=user_prompt,
+        tool_schema=_build_intent_tool_schema(),
+        call_type="repl_intent",
+    )
+    return _args_to_suggestion_or_clarify(args)
+
+
+async def _resolve_via_llm_async(text: str, ctx: _Context) -> Suggestion | Clarify | None:
+    return await _call_llm_intent(f'User said: "{text}"\n\n{_context_summary(ctx)}')
+
+
+async def _resolve_clarify_answer_async(original_text: str, question: str, answer: str, ctx: _Context) -> Suggestion | Clarify | None:
+    return await _call_llm_intent(
+        f'User said: "{original_text}"\n'
+        f'You asked: "{question}"\n'
+        f'User answered: "{answer}"\n\n'
+        f"{_context_summary(ctx)}\n\n"
+        "You now have enough information to resolve this fully -- do not ask another clarifying question unless the answer was itself unusable."
+    )
+
+
+# call_with_tool's retry chain (DeepSeek -> Kimi -> Kimi retry -> DeepSeek
+# fallback, each with their own internal retries and `asyncio.sleep(5)`
+# backoffs on transient errors) is right for a CI diagnosis a human is
+# already waiting minutes for. It is NOT right for an interactive REPL
+# prompt -- found live, 2026-08-24: an unmocked call in the test suite sat
+# for 40+ seconds with the worker's CPU time never advancing (asleep in a
+# retry backoff, not stuck). A REPL fallback needs to fail fast and say so,
+# not silently run a multi-attempt chain a person is sitting at a prompt
+# waiting on.
+_LLM_INTENT_TIMEOUT_SECONDS = 12
+
+
+def _run_llm_intent_sync(coro) -> Suggestion | Clarify | None:
+    """Sync bridge -- repl.py and tui.py's worker thread both call resolve()/
+    complete_clarify() synchronously. The coroutine is run via asyncio.run()
+    in a dedicated worker thread so it can never collide with an already-
+    running event loop in the calling thread (a pytest-asyncio test, the
+    Textual event loop, or any async caller), which would otherwise raise
+    RuntimeError -- or, in some environments, leave asyncio.run() waiting on
+    a task that ignored cancellation (the 2026-08-24 "test_intent.py hangs
+    indefinitely under pytest" report). Degrades to None on any failure --
+    missing credentials, model/network trouble, a timeout, an unparseable
+    response -- same honest contract as the fast path, never a crash or an
+    indefinite hang mid-session.
+    """
+    import threading
+
+    result_holder: list = []
+    error_holder: list = []
+
+    def _runner() -> None:
+        try:
+            result_holder.append(
+                asyncio.run(asyncio.wait_for(coro, timeout=_LLM_INTENT_TIMEOUT_SECONDS))
+            )
+        except TimeoutError:
+            logger.warning(f"REPL intent LLM call timed out after {_LLM_INTENT_TIMEOUT_SECONDS}s")
+        except Exception as exc:  # noqa: BLE001 — a bad LLM call must not kill the session
+            logger.warning(f"REPL intent LLM call failed: {exc}")
+            error_holder.append(exc)
+
+    t = threading.Thread(target=_runner, daemon=True)
+    t.start()
+    t.join(timeout=_LLM_INTENT_TIMEOUT_SECONDS + 5)
+    if t.is_alive():
+        # The coroutine ignored cancellation (sync-blocked in a connect).
+        # Bounded-join already returned; report None rather than hanging.
+        logger.warning(f"REPL intent LLM call did not stop after {_LLM_INTENT_TIMEOUT_SECONDS}s; giving up")
+        return None
+    if error_holder:
+        return None
+    return result_holder[0] if result_holder else None
+
+
+def _resolve_via_llm(text: str, ctx: _Context) -> Suggestion | Clarify | None:
+    return _run_llm_intent_sync(_resolve_via_llm_async(text, ctx))
+
+
+def resolve_clarify_answer(original_text: str, question: str, answer: str, ctx: _Context) -> Suggestion | Clarify | None:
+    """Completes an LLM-originated Clarify. The fast path's complete() only
+    knows fix/restart/rollback/open-pr -- an LLM-sourced clarifying question
+    (any command, e.g. investigate/run) had no way to receive its own
+    answer and always failed with a generic "no targets known" message.
+    Found live, 2026-08-25: asked "what's wrong with our grafana alerts"
+    -> got a real clarifying question -> answering it just broke. Feeds the
+    original text + question + answer back through the same brain rather
+    than a second answer-parsing implementation."""
+    return _run_llm_intent_sync(_resolve_clarify_answer_async(original_text, question, answer, ctx))

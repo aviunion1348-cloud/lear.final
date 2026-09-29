@@ -1,0 +1,485 @@
+"""REPL stage 2 (prash/intent.py, PRASH_V2.md §6b): free-text intent parsing.
+
+Unit tests on the pure resolution layer plus integration tests running the
+REPL loop headlessly with scripted lines. No TTY, CI-safe on all 3 OSes.
+"""
+
+from __future__ import annotations
+
+import asyncio
+
+import pytest
+
+from prash import repl
+from prash.intent import (
+    Clarify,
+    Suggestion,
+    _Context,
+    _args_to_suggestion_or_clarify,
+    _verb_hit,
+    complete,
+    resolve,
+    resolve_fast_path,
+)
+from prash.repl import _is_it_phrase, _looks_like_talk
+
+
+def ctx(**kw):
+    return _Context(**kw)
+
+
+# ---- verb detection ------------------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("my api pod is sick, fix it", "fix"),
+    ("restart the broken pod", "restart"),
+    ("please watch the cluster", "watch"),
+    ("rollback the bad deployment", "rollback"),
+    ("open a pr against acme/widget", "open-pr"),
+    ("show me the audit log", "audit"),
+    ("what can you do", "actions"),
+    ("just show config", "config"),
+    ("is the circuit open", "circuit"),
+    ("apply the ci fix for run 123", "apply-ci-fix"),
+])
+def test_verb_detection(text, expected):
+    assert _verb_hit(text) == expected
+
+
+@pytest.mark.parametrize("text", ["hello", "3.14159", "open the door", "how are you"])
+def test_not_intent(text):
+    assert _verb_hit(text) is None
+
+
+# ---- target resolution ---------------------------------------------------
+
+def test_free_text_fix_resolves_bare_pod_with_namespace():
+    s = resolve("my api pod is sick, fix it", ctx(namespace="prash-demo", pod="api-7f9d", last_target="prash-demo/api-7f9d"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/api-7f9d"]
+
+
+def test_free_text_fix_with_explicit_target_qualifies_it():
+    s = resolve("fix web-3 now", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/web-3"]
+
+
+def test_free_text_fix_with_no_session_namespace_falls_back_to_env_default(monkeypatch):
+    """Found live 2026-09-17: server.py's /api/chat[/stream] builds a fresh,
+    namespace-less _Context() on every request (no REPL session to
+    remember one in). "the oom-app pod in prash-demo keeps crashing, fix
+    it" fast-pathed to `prash fix oom-app` -- a bare name fix.py's own
+    target parser rejects outright -- even though the pod genuinely
+    exists and the sentence even names the namespace. Must fall back to
+    the configured default namespace instead of handing fix.py a target
+    guaranteed to fail."""
+    monkeypatch.setenv("KUBE_NAMESPACE", "prash-demo")
+    s = resolve("the oom-app pod in prash-demo keeps crashing, can you fix it", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/oom-app"]
+
+
+def test_free_text_fix_bails_to_llm_when_it_smells_like_a_non_k8s_instance(monkeypatch):
+    """Found live 2026-09-17: "bithub-backend seems down, nginx might not
+    be running, can you check and fix it" matched the "fix" verb and got
+    blindly qualified as a kubernetes pod ("prash-demo/bithub-backend"),
+    even though the sentence explicitly names an in-instance service
+    (nginx), not a pod. resolve_fast_path has no provider-detection logic
+    at all -- must return None (bail to the LLM) instead of guessing wrong
+    for a brand-new, unqualified target next to a non-k8s instance hint."""
+    monkeypatch.setenv("KUBE_NAMESPACE", "prash-demo")
+    s = resolve_fast_path("bithub-backend seems down, nginx might not be running, can you check and fix it", ctx())
+    assert s is None
+
+
+def test_free_text_fix_still_uses_k8s_fast_path_with_an_established_namespace():
+    """The bail-out in the test above must not fire once the session
+    already has a real kubernetes namespace context -- that's specific
+    enough to trust, hint words or not."""
+    s = resolve_fast_path("the nginx-proxy pod keeps crashing, fix it", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/nginx-proxy"]
+
+
+def test_qualified_target_passes_through_untouched():
+    s = resolve("restart prash-demo/api-1", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "restart-pod", "prash-demo/api-1"]
+
+
+def test_fix_with_no_context_asks_for_target():
+    s = resolve("fix the broken pod", ctx())
+    assert isinstance(s, Clarify)
+    assert "Which pod" in s.question
+
+
+def test_fix_with_no_context_but_remembered_pod_uses_it():
+    s = resolve("fix the broken pod", ctx(namespace="prash-demo", pod="api-2", last_target="prash-demo/api-2"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/api-2"]
+
+
+def test_open_pr_never_guesses_a_repo():
+    s = resolve("open a pr", ctx(namespace="prash-demo", pod="api-2", last_target="prash-demo/api-2"))
+    assert isinstance(s, Clarify)
+    assert "repository" in s.question
+
+
+# ---- resolve_fast_path() vs resolve() (server.py async-safety split) ------
+
+def test_resolve_fast_path_matches_resolve_on_heuristic_hits():
+    """Both must agree on anything the keyword table actually recognizes --
+    the split changes WHO calls the LLM fallback, not the heuristic half's
+    behavior."""
+    text = "restart the broken pod"
+    c = ctx(namespace="prash-demo", pod="api-1", last_target="prash-demo/api-1")
+    assert resolve_fast_path(text, c) == resolve(text, c)
+
+
+def test_resolve_fast_path_returns_none_without_touching_the_llm(monkeypatch):
+    """Found live 2026-09-16: server.py's /api/chat and /api/chat/stream
+    (both async FastAPI handlers) called the synchronous resolve() for
+    their heuristic-only "fast path" step, not realizing resolve() itself
+    falls through to _resolve_via_llm() -- which runs the coroutine via
+    asyncio.run() in a background thread. That's the right bridge for
+    repl.py/tui.py's plain synchronous callers, but from inside a handler
+    that already has its own running event loop it creates a SECOND
+    asyncio event loop in the same process; asyncio.run() closes that loop
+    on return, and prash.brain.kimi_client's module-level cached
+    AsyncOpenAI client -- if constructed on that thread -- was left bound
+    to a now-dead loop, so every later DeepSeek call in the process failed
+    with a generic "Connection error", even calls made correctly from the
+    main loop afterward. resolve_fast_path() must never reach the LLM path
+    on a miss -- that's the whole point of the split."""
+    def _boom(*args, **kwargs):
+        raise AssertionError("resolve_fast_path() must not call the LLM fallback")
+
+    monkeypatch.setattr("prash.intent._resolve_via_llm", _boom)
+    result = resolve_fast_path("what's wrong with our grafana alerts", ctx())
+    assert result is None
+
+
+# ---- datadog fast-path routing (connector rewrite M2/M4) -------------------
+
+def test_intent_watch_datadog_routes_to_datadog_provider():
+    """'watch this datadog monitor' must NOT fall into the generic watch verb
+    (which polls the kubernetes namespace watcher) — it names the provider."""
+    s = resolve("watch this datadog monitor cpu-high", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--provider", "datadog", "--resource", "cpu-high"]
+
+
+def test_intent_watch_datadog_without_target_uses_env_default():
+    s = resolve("watch my datadog monitors", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--provider", "datadog"]
+
+
+def test_intent_datadog_stats_with_target_routes_to_investigate():
+    s = resolve("what happened on datadog monitor cpu-high", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["investigate", "cpu-high", "--provider", "datadog"]
+
+
+def test_intent_datadog_stats_without_target_asks_which_monitor():
+    s = resolve("what happened on datadog", ctx())
+    assert isinstance(s, Clarify)
+    assert "datadog" in s.question
+
+
+def test_intent_non_datadog_watch_still_routes_to_kubernetes():
+    """The datadog fast path only fires when 'datadog' is explicit — every
+    pre-existing phrasing keeps its old routing."""
+    s = resolve("please watch the cluster", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch"]
+
+
+def test_intent_watch_pagerduty_routes_to_pagerduty_provider():
+    s = resolve("watch the pagerduty service checkout-api", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--provider", "pagerduty", "--resource", "checkout-api"]
+
+
+def test_intent_pagerduty_incidents_routes_to_investigate():
+    s = resolve("what happened on pagerduty service checkout-api", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["investigate", "checkout-api", "--provider", "pagerduty"]
+
+
+def test_intent_pagerduty_without_target_asks_which_service():
+    s = resolve("any pagerduty incidents?", ctx())
+    assert isinstance(s, Clarify)
+    assert "pagerduty" in s.question
+
+
+def test_intent_pagerduty_watch_without_target_uses_env_default():
+    s = resolve("watch pagerduty", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--provider", "pagerduty"]
+
+
+def test_open_pr_with_repo_uses_it():
+    s = resolve("open a pr against acme/widget", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "open-pr", "acme/widget"]
+
+
+def test_watch_actions_config_circuit_audit_need_no_target():
+    for text, argv in [
+        ("watch the cluster", ["watch"]),
+        ("show actions", ["actions"]),
+        ("show config", ["config"]),
+        ("circuit status please", ["circuit", "status"]),
+        ("show the audit log", ["audit", "--tail", "20"]),
+    ]:
+        s = resolve(text, ctx())
+        assert isinstance(s, Suggestion), text
+        assert s.argv == argv
+
+
+# ---- clarifying follow-ups ------------------------------------------------
+
+def test_complete_with_bare_name_qualifies_with_namespace():
+    s = complete("fix", "web-9", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "prash-demo/web-9"]
+
+
+def test_complete_with_qualified_target_passes_through():
+    s = complete("restart", "prash-demo/api-1", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "restart-pod", "prash-demo/api-1"]
+
+
+def test_complete_garbage_returns_none():
+    assert complete("fix", "??!", ctx()) is None
+
+
+# ---- REPL-level integration ----------------------------------------------
+
+def _run(lines):
+    from rich.console import Console
+
+    console = Console(record=True)
+    rc = repl.run_repl(console, lines=lines)
+    return rc, console
+
+
+def test_free_text_fix_runs_through_loop():
+    # fix needs a kube-config -> the diagnosis fails cleanly, but the point is
+    # the free text was translated into a real `fix` invocation (context applied).
+    rc, console = _run(["fix prash-demo/api-1", "the api pod is sick, fix it", "exit"])
+    assert rc == 0
+    text = console.export_text()
+    assert "fixing prash-demo/api-1" in text  # stage 2 resolved + explained
+
+
+def test_it_phrase_uses_remembered_target():
+    rc, console = _run(["fix prash-demo/api-1", "fix it", "exit"])
+    assert rc == 0
+    text = console.export_text()
+    assert "fixing prash-demo/api-1" in text
+
+
+def test_ambiguous_target_asks_then_completes():
+    # "restart the broken pod" with no remembered target -> Clarify -> then a
+    # bare pod answer resolves through complete().
+    rc, console = _run(["restart the broken pod", "web-5", "exit"])
+    assert rc == 0
+    text = console.export_text()
+    assert "Which pod" in text
+    assert "restarting prash-demo/web-5" in text or "restarting web-5" in text
+
+
+def test_clarify_answer_by_index_picks_the_option():
+    # A numbered answer to the clarifying question picks the listed option.
+    rc, console = _run(["restart the broken pod", "1", "exit"])
+    assert rc == 0
+    text = console.export_text()
+    assert "Which pod" in text
+
+
+def test_watch_free_text_runs():
+    rc, console = _run(["watch the cluster", "exit"])
+    assert rc == 0
+    text = console.export_text()
+    assert "Watching namespace" in text or "watching the remembered namespace" in text
+
+
+def test_talk_heuristics():
+    assert _is_it_phrase("fix it")
+    assert _is_it_phrase("restart that")
+    assert not _is_it_phrase("fix prash-demo/api-1")
+    assert _looks_like_talk("restart the broken api pod")
+    assert not _looks_like_talk("fix api-7f9d")
+    assert not _looks_like_talk("watch")
+
+
+def test_run_llm_intent_sync_never_hangs_on_stuck_coroutine():
+    """Regression for the 2026-08-24 'test_intent.py hangs under pytest'
+    report: a coroutine that never completes (sync-blocked, ignoring
+    cancellation) must still return None within a bounded time instead of
+    hanging the caller forever. The sync bridge runs the LLM call in a
+    worker thread with a bounded join, so a stuck task cannot block pytest."""
+    import time
+
+    from prash.intent import _LLM_INTENT_TIMEOUT_SECONDS, _run_llm_intent_sync
+
+    async def never_completes():
+        await asyncio.sleep(3600)  # pragma: no cover - would hang if reached
+
+    start = time.monotonic()
+    result = _run_llm_intent_sync(never_completes())
+    elapsed = time.monotonic() - start
+    assert result is None
+    # Bounded: must return well before the sleep(3600) would finish. The
+    # bridge's own timeout + join margin is _LLM_INTENT_TIMEOUT_SECONDS + 5,
+    # so assert comfortably inside that.
+    assert elapsed < _LLM_INTENT_TIMEOUT_SECONDS + 10
+
+
+# ---- M3: get_stats / watch / alert reachable through natural language ------
+
+@pytest.mark.parametrize("text,expected", [
+    ("what's been happening with my api pod", "stats"),
+    ("what happened to prash-demo/api", "stats"),
+    ("show me the recent events", "stats"),
+    ("show me the timeline", "stats"),
+    ("give me the stats", "stats"),
+    ("event history please", "stats"),
+])
+def test_stats_verb_detection(text, expected):
+    assert _verb_hit(text) == expected
+
+
+def test_stats_never_hijacks_an_explicit_action_verb():
+    # "diagnose what happened" is a fix, not a read — the action verb wins.
+    assert _verb_hit("diagnose what happened to my pod") == "fix"
+    assert _verb_hit("fix it and show me what happened") == "fix"
+
+
+def test_stats_resolves_target_like_fix():
+    s = resolve("what's been happening with api-7f9d",
+                ctx(namespace="prash-demo", last_target="prash-demo/api-7f9d"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["stats", "prash-demo/api-7f9d"]
+
+
+def test_stats_with_qualified_target_passes_through():
+    s = resolve("what happened to prash-demo/web-3", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["stats", "prash-demo/web-3"]
+
+
+def test_stats_with_no_target_asks():
+    c = resolve("show me the recent events", ctx())
+    assert isinstance(c, Clarify)
+
+
+def test_complete_stats_qualifies_bare_name():
+    s = complete("stats", "web-9", ctx(namespace="prash-demo"))
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["stats", "prash-demo/web-9"]
+
+
+def test_watch_with_target_scopes_to_its_namespace():
+    s = resolve("keep an eye on prash-demo/api-1", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--namespace", "prash-demo"]
+
+
+def test_watch_without_target_stays_bare():
+    s = resolve("watch the cluster", ctx())
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch"]
+
+
+# ---- M3: LLM slow-path arg mapping (pure, no network) ---------------------
+
+def test_llm_stats_maps_to_stats_command():
+    s = _args_to_suggestion_or_clarify(
+        {"command": "stats", "resource": "i-0abc", "provider": "aws", "explanation": "recent AWS events"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["stats", "i-0abc", "--provider", "aws"]
+
+
+def test_llm_stats_defaults_provider_to_kubernetes():
+    s = _args_to_suggestion_or_clarify(
+        {"command": "stats", "resource": "prash-demo/api", "explanation": "events"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["stats", "prash-demo/api", "--provider", "kubernetes"]
+
+
+def test_llm_stats_without_resource_asks():
+    c = _args_to_suggestion_or_clarify({"command": "stats", "explanation": "events"})
+    assert isinstance(c, Clarify)
+
+
+def test_llm_watch_non_k8s_uses_provider_resource():
+    s = _args_to_suggestion_or_clarify(
+        {"command": "watch", "provider": "datadog", "resource": "checkout-latency", "explanation": "watch monitor"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--provider", "datadog", "--resource", "checkout-latency"]
+
+
+def test_llm_watch_k8s_scopes_to_namespace():
+    s = _args_to_suggestion_or_clarify(
+        {"command": "watch", "provider": "kubernetes", "resource": "prash-demo/api", "explanation": "watch ns"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["watch", "--namespace", "prash-demo"]
+
+
+def test_llm_alert_routes_through_run_action():
+    # paging an on-call responder is a gated write -> command=run + *-alert id
+    s = _args_to_suggestion_or_clarify(
+        {"command": "run", "action_id": "aws-alert", "resource": "i-0abc", "explanation": "page on-call"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "aws-alert", "i-0abc"]
+
+
+def test_llm_fix_adds_provider_flag_for_aws_and_gcp():
+    """Found live 2026-09-17: dropping the provider here isn't a no-op --
+    cmd_fix defaults to the kubernetes path, which rejects a bare instance
+    name like "bithub-backend" with "expected <namespace>/<pod> target"."""
+    s = _args_to_suggestion_or_clarify(
+        {"command": "fix", "provider": "aws", "resource": "bithub-backend", "explanation": "diagnose the instance"}
+    )
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["fix", "bithub-backend", "--provider", "aws"]
+
+    s2 = _args_to_suggestion_or_clarify(
+        {"command": "fix", "provider": "gcp", "resource": "drufiy-proxy", "explanation": "diagnose the instance"}
+    )
+    assert s2.argv == ["fix", "drufiy-proxy", "--provider", "gcp"]
+
+
+def test_llm_run_execute_aws_passes_through_the_command():
+    """Found live 2026-09-17: execute-aws/execute-gcp/exec were unreachable
+    through chat at all -- cli.py's `run` subcommand has always had
+    --command/--exec-command flags, but nothing in the LLM's tool schema or
+    this argv builder ever populated them, so the action always failed with
+    "no command given" regardless of what the user asked for."""
+    s = _args_to_suggestion_or_clarify({
+        "command": "run", "action_id": "execute-aws", "resource": "bithub-backend",
+        "run_command": "sudo systemctl restart nginx", "explanation": "restart nginx",
+    })
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "execute-aws", "bithub-backend", "--command", "sudo systemctl restart nginx"]
+
+
+def test_llm_run_exec_uses_the_exec_command_flag_not_command():
+    """`exec` (a k8s pod) takes --exec-command, not --command -- the two
+    instance-level actions (execute-aws/execute-gcp) take --command."""
+    s = _args_to_suggestion_or_clarify({
+        "command": "run", "action_id": "exec", "resource": "prash-demo/api-1",
+        "run_command": "ls -la /app", "explanation": "list app directory",
+    })
+    assert isinstance(s, Suggestion)
+    assert s.argv == ["run", "exec", "prash-demo/api-1", "--exec-command", "ls -la /app"]

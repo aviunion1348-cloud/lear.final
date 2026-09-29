@@ -1,0 +1,434 @@
+/* =============================================================================
+   LEAR ANIMATION LIBRARY — the "900+ niche animations" engine, CSS layer
+   -----------------------------------------------------------------------------
+   Structure:
+     §1  Keyframe primitives (~90 distinct curves)
+     §2  `.fx-*` preset classes (one per primitive, tuned defaults)
+     §3  Modifiers: .fx-dur-*, .fx-delay-*, .fx-ease-*, .fx-loop, .fx-rev
+     §4  `prefers-reduced-motion` hard stop
+
+   The framer-motion layer (src/lib/motion.ts) multiplies these into ~900+
+   named presets (kind × direction × distance × timing × stagger families).
+   ========================================================================== */
+
+/* ---------- §1 KEYFRAME PRIMITIVES ------------------------------------------ */
+
+/* Entrances */
+@keyframes fade-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes fade-out { from { opacity: 1 } to { opacity: 0 } }
+@keyframes rise { from { opacity: 0; transform: translate3d(0, 14px, 0) } to { opacity: 1; transform: translate3d(0, 0, 0) } }
+@keyframes sink-in { from { opacity: 0; transform: translate3d(0, -14px, 0) } to { opacity: 1; transform: translate3d(0, 0, 0) } }
+@keyframes slide-l-in { from { opacity: 0; transform: translate3d(24px, 0, 0) } to { opacity: 1; transform: translate3d(0, 0, 0) } }
+@keyframes slide-r-in { from { opacity: 0; transform: translate3d(-24px, 0, 0) } to { opacity: 1; transform: translate3d(0, 0, 0) } }
+@keyframes zoom-in { from { opacity: 0; transform: scale(0.92) } to { opacity: 1; transform: scale(1) } }
+@keyframes zoom-out { from { opacity: 0; transform: scale(1.06) } to { opacity: 1; transform: scale(1) } }
+@keyframes blur-in { from { opacity: 0; filter: blur(10px) } to { opacity: 1; filter: blur(0) } }
+@keyframes flip-in { from { opacity: 0; transform: perspective(600px) rotateX(-14deg) } to { opacity: 1; transform: perspective(600px) rotateX(0) } }
+@keyframes pop-in { 0% { opacity: 0; transform: scale(0.7) } 70% { opacity: 1; transform: scale(1.04) } 100% { opacity: 1; transform: scale(1) } }
+@keyframes unfold-y { from { opacity: 0; transform: scaleY(0.4); transform-origin: top } to { opacity: 1; transform: scaleY(1); transform-origin: top } }
+@keyframes unfold-x { from { opacity: 0; transform: scaleX(0.4); transform-origin: left } to { opacity: 1; transform: scaleX(1); transform-origin: left } }
+@keyframes grow-bar { from { transform: scaleX(0); transform-origin: left } to { transform: scaleX(1); transform-origin: left } }
+@keyframes wipe-up { from { clip-path: inset(100% 0 0 0) } to { clip-path: inset(0 0 0 0) } }
+@keyframes circle-in { from { clip-path: circle(0% at 50% 50%) } to { clip-path: circle(120% at 50% 50%) } }
+
+/* Exits */
+@keyframes drop-out { to { opacity: 0; transform: translate3d(0, 12px, 0) } }
+@keyframes lift-out { to { opacity: 0; transform: translate3d(0, -12px, 0) } }
+@keyframes shrink-out { to { opacity: 0; transform: scale(0.92) } }
+
+/* Ambient / continuous */
+@keyframes float { 0%, 100% { transform: translate3d(0, 0, 0) } 50% { transform: translate3d(0, -10px, 0) } }
+@keyframes float-x { 0%, 100% { transform: translate3d(0, 0, 0) } 50% { transform: translate3d(10px, 0, 0) } }
+@keyframes drift { 0% { transform: translate3d(0, 0, 0) } 50% { transform: translate3d(14px, -12px, 0) } 100% { transform: translate3d(0, 0, 0) } }
+@keyframes breathe { 0%, 100% { transform: scale(1); opacity: 0.85 } 50% { transform: scale(1.035); opacity: 1 } }
+@keyframes pulse-soft { 0%, 100% { opacity: 1 } 50% { opacity: 0.55 } }
+@keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 0 0 rgba(var(--lear-brand-rgb), 0.45) } 50% { box-shadow: 0 0 22px 4px rgba(var(--lear-brand-rgb), 0.25) } }
+@keyframes pulse-radar { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--lear-brand-rgb), 0.6) } 70% { transform: scale(1); box-shadow: 0 0 0 8px rgba(var(--lear-brand-rgb), 0) } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(var(--lear-brand-rgb), 0) } }
+@keyframes ping-ring { 0% { transform: scale(1); opacity: 0.7 } 80%, 100% { transform: scale(2.1); opacity: 0 } }
+@keyframes heartbeat { 0%, 40%, 80%, 100% { transform: scale(1) } 20%, 60% { transform: scale(1.12) } }
+@keyframes blink { 0%, 100% { opacity: 1 } 50% { opacity: 0.25 } }
+@keyframes flicker { 0%, 18%, 22%, 53%, 57%, 100% { opacity: 1 } 20%, 55% { opacity: 0.4 } }
+@keyframes wave-y { 0%, 100% { transform: translateY(0) } 25% { transform: translateY(-4px) } 75% { transform: translateY(4px) } }
+
+/* Rotation / orbit */
+@keyframes spin-slow-rev { to { transform: rotate(-360deg) } }
+@keyframes orbit { from { transform: rotate(0deg) translateX(10px) rotate(0deg) } to { transform: rotate(360deg) translateX(10px) rotate(-360deg) } }
+@keyframes swing { 0%, 100% { transform: rotate(4deg) } 50% { transform: rotate(-4deg) } }
+@keyframes wiggle { 0%, 100% { transform: rotate(0deg) } 25% { transform: rotate(2.5deg) } 75% { transform: rotate(-2.5deg) } }
+@keyframes ring-spin { to { --ring-angle: 360deg } }
+
+/* Shine / sheen / gradients */
+@keyframes shimmer { from { background-position: -200% 0 } to { background-position: 200% 0 } }
+@keyframes sheen { from { transform: translateX(-120%) skewX(-18deg) } to { transform: translateX(240%) skewX(-18deg) } }
+@keyframes gradient-pan { 0%, 100% { background-position: 0% 50% } 50% { background-position: 100% 50% } }
+@keyframes hue-cycle { from { filter: hue-rotate(0deg) } to { filter: hue-rotate(360deg) } }
+
+/* Tech / sci-fi */
+@keyframes scanline { from { transform: translateY(-100%) } to { transform: translateY(100vh) } }
+@keyframes scan-x { from { transform: translateX(-100%) } to { transform: translateX(100%) } }
+@keyframes dash-move { to { stroke-dashoffset: -20 } }
+@keyframes border-run { 0% { background-position: 0% 50% } 100% { background-position: 200% 50% } }
+@keyframes data-stream { from { transform: translateY(100%); opacity: 0 } 12%, 88% { opacity: 1 } to { transform: translateY(-100%); opacity: 0 } }
+@keyframes grid-pan { from { background-position: 0 0 } to { background-position: 44px 44px } }
+@keyframes marquee { from { transform: translate3d(0, 0, 0) } to { transform: translate3d(-50%, 0, 0) } }
+@keyframes ticker-up { from { transform: translate3d(0, 0, 0) } to { transform: translate3d(0, -50%, 0) } }
+
+/* Emphasis */
+@keyframes bounce-soft { 0%, 100% { transform: translateY(0) } 50% { transform: translateY(-6px) } }
+@keyframes shake { 0%, 100% { transform: translateX(0) } 20%, 60% { transform: translateX(-5px) } 40%, 80% { transform: translateX(5px) } }
+@keyframes jelly { 0%, 100% { transform: scale(1, 1) } 30% { transform: scale(1.08, 0.92) } 60% { transform: scale(0.94, 1.06) } }
+@keyframes flash { 0%, 50%, 100% { opacity: 1 } 25%, 75% { opacity: 0.45 } }
+@keyframes glow-pulse-cyan { 0%, 100% { box-shadow: 0 0 0 0 rgba(var(--lear-cyan-rgb), 0.4) } 50% { box-shadow: 0 0 20px 3px rgba(var(--lear-cyan-rgb), 0.22) } }
+@keyframes glow-pulse-danger { 0%, 100% { box-shadow: 0 0 0 0 rgba(var(--lear-danger-rgb), 0.45) } 50% { box-shadow: 0 0 20px 3px rgba(var(--lear-danger-rgb), 0.25) } }
+@keyframes glow-pulse-success { 0%, 100% { box-shadow: 0 0 0 0 rgba(var(--lear-success-rgb), 0.4) } 50% { box-shadow: 0 0 20px 3px rgba(var(--lear-success-rgb), 0.22) } }
+
+/* Progress / loaders */
+@keyframes indeterminate { from { transform: translateX(-100%) } to { transform: translateX(250%) } }
+@keyframes progress-stripes { from { background-position: 0 0 } to { background-position: 40px 0 } }
+@keyframes dot-typing { 0%, 100% { transform: translateY(0); opacity: 0.4 } 50% { transform: translateY(-4px); opacity: 1 } }
+@keyframes skeleton-wave { from { transform: translateX(-100%) } to { transform: translateX(100%) } }
+@keyframes bar-grow-y { from { transform: scaleY(0.15) } to { transform: scaleY(1) } }
+@keyframes equalize { 0%, 100% { transform: scaleY(0.3) } 50% { transform: scaleY(1) } }
+@keyframes count-flip { from { transform: translateY(100%); opacity: 0 } to { transform: translateY(0); opacity: 1 } }
+
+/* Aura / cinematic */
+@keyframes aurora-shift { 0%, 100% { transform: translate3d(-4%, -2%, 0) scale(1.05) } 33% { transform: translate3d(3%, 2%, 0) scale(1.12) } 66% { transform: translate3d(-2%, 3%, 0) scale(1.08) } }
+@keyframes slow-zoom { from { transform: scale(1) } to { transform: scale(1.14) } }
+@keyframes parallax-tilt { 0%, 100% { transform: rotateY(-2deg) rotateX(1deg) } 50% { transform: rotateY(2deg) rotateX(-1deg) } }
+@keyframes grain { 0%, 100% { transform: translate(0, 0) } 20% { transform: translate(-4%, 3%) } 40% { transform: translate(3%, -4%) } 60% { transform: translate(-3%, -2%) } 80% { transform: translate(4%, 3%) } }
+@keyframes vortex { from { transform: rotate(0deg) scale(1) } 50% { transform: rotate(180deg) scale(0.92) } to { transform: rotate(360deg) scale(1) } }
+@keyframes comet { from { transform: translate3d(-10vw, 0, 0); opacity: 0 } 6%, 60% { opacity: 1 } to { transform: translate3d(110vw, 0, 0); opacity: 0 } }
+@keyframes strobe-in { 0% { opacity: 0 } 12% { opacity: 1 } 24% { opacity: 0.15 } 36% { opacity: 1 } 100% { opacity: 1 } }
+@keyframes trail-fade { from { opacity: 0.8; transform: scaleY(1) } to { opacity: 0; transform: scaleY(0.2) } }
+@keyframes beacon { 0%, 100% { opacity: 0.3 } 50% { opacity: 1 } }
+
+/* ---------- §2 PRESET CLASSES ------------------------------------------------ */
+.fx-fade-in { animation: fade-in var(--dur-normal) var(--ease-decelerate) both }
+.fx-fade-out { animation: fade-out var(--dur-normal) var(--ease-standard) both }
+.fx-rise { animation: rise var(--dur-normal) var(--ease-decelerate) both }
+.fx-sink-in { animation: sink-in var(--dur-normal) var(--ease-decelerate) both }
+.fx-slide-l { animation: slide-l-in var(--dur-normal) var(--ease-decelerate) both }
+.fx-slide-r { animation: slide-r-in var(--dur-normal) var(--ease-decelerate) both }
+.fx-zoom-in { animation: zoom-in var(--dur-normal) var(--ease-spring) both }
+.fx-zoom-out { animation: zoom-out var(--dur-normal) var(--ease-decelerate) both }
+.fx-blur-in { animation: blur-in var(--dur-slow) var(--ease-decelerate) both }
+.fx-flip-in { animation: flip-in var(--dur-normal) var(--ease-decelerate) both }
+.fx-pop-in { animation: pop-in var(--dur-normal) var(--ease-spring) both }
+.fx-unfold-y { animation: unfold-y var(--dur-normal) var(--ease-decelerate) both }
+.fx-unfold-x { animation: unfold-x var(--dur-normal) var(--ease-decelerate) both }
+.fx-grow-bar { animation: grow-bar var(--dur-slow) var(--ease-swift) both }
+.fx-wipe-up { animation: wipe-up var(--dur-slow) var(--ease-decelerate) both }
+.fx-circle-in { animation: circle-in var(--dur-slow) var(--ease-decelerate) both }
+.fx-drop-out { animation: drop-out var(--dur-fast) var(--ease-accelerate) both }
+.fx-lift-out { animation: lift-out var(--dur-fast) var(--ease-accelerate) both }
+.fx-shrink-out { animation: shrink-out var(--dur-fast) var(--ease-accelerate) both }
+
+.fx-float { animation: float 7s ease-in-out infinite }
+.fx-float-x { animation: float-x 8s ease-in-out infinite }
+.fx-drift { animation: drift 11s ease-in-out infinite }
+.fx-breathe { animation: breathe 4.5s ease-in-out infinite }
+.fx-pulse-soft { animation: pulse-soft 2.4s ease-in-out infinite }
+.fx-pulse-glow { animation: pulse-glow 2.4s ease-in-out infinite }
+.fx-ping { animation: ping-ring 2.6s cubic-bezier(0, 0, 0.2, 1) infinite }
+.fx-heartbeat { animation: heartbeat 2.8s ease-in-out infinite }
+.fx-blink { animation: blink 1.2s steps(2, start) infinite }
+.fx-flicker { animation: flicker 4s linear infinite }
+.fx-wave { animation: wave-y 3.2s ease-in-out infinite }
+.fx-spin-slow { animation: spin 16s linear infinite }
+.fx-spin-rev { animation: spin-slow-rev 16s linear infinite }
+.fx-orbit { animation: orbit 9s linear infinite }
+.fx-swing { animation: swing 2.6s ease-in-out infinite }
+.fx-wiggle { animation: wiggle 2.2s ease-in-out infinite }
+
+.fx-shimmer {
+  background-image: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.14) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: shimmer 1.8s linear infinite;
+}
+.fx-sheen { position: relative; overflow: hidden }
+.fx-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.16), transparent);
+  animation: sheen 2.8s var(--ease-standard) infinite;
+  pointer-events: none;
+}
+.fx-gradient-pan { background-size: 200% 200%; animation: gradient-pan 9s ease infinite }
+.fx-hue-cycle { animation: hue-cycle 12s linear infinite }
+.fx-scanline {
+  position: relative;
+  overflow: hidden;
+}
+.fx-scanline::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 120px;
+  top: 0;
+  background: linear-gradient(180deg, transparent, rgba(var(--lear-cyan-rgb), 0.05), transparent);
+  animation: scanline 7s linear infinite;
+  pointer-events: none;
+}
+.fx-scan-x { position: relative; overflow: hidden }
+.fx-scan-x::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 140px;
+  background: linear-gradient(90deg, transparent, rgba(var(--lear-brand-rgb), 0.08), transparent);
+  animation: scan-x 5.5s var(--ease-standard) infinite;
+  pointer-events: none;
+}
+.fx-dash-border { stroke-dasharray: 6 14; animation: dash-move 1.4s linear infinite }
+.fx-data-stream { animation: data-stream 2.6s linear infinite }
+.fx-grid-pan {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 44px 44px;
+  animation: grid-pan 4s linear infinite;
+}
+.fx-marquee { animation: marquee 28s linear infinite }
+.fx-ticker-up { animation: ticker-up 18s linear infinite }
+
+.fx-bounce-soft { animation: bounce-soft 2.4s ease-in-out infinite }
+.fx-shake { animation: shake 0.5s var(--ease-standard) both }
+.fx-jelly { animation: jelly 0.9s ease both }
+.fx-flash { animation: flash 1.6s ease-in-out infinite }
+.fx-glow-cyan { animation: glow-pulse-cyan 2.6s ease-in-out infinite }
+.fx-glow-danger { animation: glow-pulse-danger 2.4s ease-in-out infinite }
+.fx-glow-success { animation: glow-pulse-success 2.6s ease-in-out infinite }
+
+.fx-indeterminate {
+  background-image: var(--gradient-brand);
+  animation: indeterminate 1.4s var(--ease-standard) infinite;
+}
+.fx-progress-stripes {
+  background-image: linear-gradient(45deg, rgba(255, 255, 255, 0.12) 25%, transparent 25%, transparent 50%, rgba(255, 255, 255, 0.12) 50%, rgba(255, 255, 255, 0.12) 75%, transparent 75%);
+  background-size: 40px 40px;
+  animation: progress-stripes 1s linear infinite;
+}
+.fx-dot-typing { animation: dot-typing 1.2s ease-in-out infinite }
+.fx-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+.fx-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+  animation: skeleton-wave 1.6s var(--ease-standard) infinite;
+}
+.fx-equalize { transform-origin: bottom; animation: equalize 1s ease-in-out infinite }
+.fx-count-flip { animation: count-flip 0.45s var(--ease-swift) both }
+
+.fx-aurora { animation: aurora-shift 18s ease-in-out infinite }
+.fx-slow-zoom { animation: slow-zoom 24s ease-in-out infinite alternate }
+.fx-parallax-tilt { animation: parallax-tilt 12s ease-in-out infinite }
+.fx-grain { animation: grain 1.1s steps(4) infinite }
+.fx-vortex { animation: vortex 14s linear infinite }
+.fx-comet { animation: comet 9s linear infinite }
+.fx-strobe-in { animation: strobe-in 0.9s linear both }
+.fx-trail-fade { animation: trail-fade 0.9s var(--ease-standard) both }
+.fx-beacon { animation: beacon 2.2s ease-in-out infinite }
+
+/* Stagger helper — children cascade in */
+.fx-stagger > * { animation: rise var(--dur-normal) var(--ease-decelerate) both }
+.fx-stagger > *:nth-child(1) { animation-delay: 0ms }
+.fx-stagger > *:nth-child(2) { animation-delay: 60ms }
+.fx-stagger > *:nth-child(3) { animation-delay: 120ms }
+.fx-stagger > *:nth-child(4) { animation-delay: 180ms }
+.fx-stagger > *:nth-child(5) { animation-delay: 240ms }
+.fx-stagger > *:nth-child(6) { animation-delay: 300ms }
+.fx-stagger > *:nth-child(7) { animation-delay: 360ms }
+.fx-stagger > *:nth-child(8) { animation-delay: 420ms }
+.fx-stagger > *:nth-child(n+9) { animation-delay: 480ms }
+
+/* ---------- §3 MODIFIERS ------------------------------------------------------- */
+.fx-dur-instant { animation-duration: var(--dur-instant) !important }
+.fx-dur-fast { animation-duration: var(--dur-fast) !important }
+.fx-dur-normal { animation-duration: var(--dur-normal) !important }
+.fx-dur-slow { animation-duration: var(--dur-slow) !important }
+.fx-dur-slower { animation-duration: var(--dur-slower) !important }
+.fx-delay-1 { animation-delay: 90ms !important }
+.fx-delay-2 { animation-delay: 180ms !important }
+.fx-delay-3 { animation-delay: 270ms !important }
+.fx-delay-4 { animation-delay: 360ms !important }
+.fx-delay-5 { animation-delay: 450ms !important }
+.fx-ease-spring { animation-timing-function: var(--ease-spring) !important }
+.fx-ease-swift { animation-timing-function: var(--ease-swift) !important }
+.fx-once { animation-iteration-count: 1 !important }
+.fx-rev { animation-direction: reverse !important }
+.fx-paused { animation-play-state: paused !important }
+
+/* ---------- §4 ACCESSIBILITY ----------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .fx-float, .fx-drift, .fx-breathe, .fx-aurora, .fx-slow-zoom,
+  .fx-parallax-tilt, .fx-marquee, .fx-ticker-up, .fx-comet,
+  .fx-scanline::after, .fx-scan-x::after, .fx-sheen::after {
+    animation: none !important;
+  }
+}
+
+/* =============================================================================
+   §5 PREMIUM CINEMA PACK — extended keyframes for the immersive overhaul
+   Added by the UI overhaul. All GPU-cheap (transform / opacity / filter).
+   Consumed via the fx-* utility classes below and the motion registry.
+   ========================================================================== */
+@keyframes holo-shift { 0%,100% { filter: hue-rotate(0deg) } 50% { filter: hue-rotate(22deg) } }
+@keyframes glint-sweep { 0% { transform: translateX(-120%) skewX(-18deg) } 100% { transform: translateX(220%) skewX(-18deg) } }
+@keyframes pulse-ring-2 { 0% { box-shadow: 0 0 0 0 rgba(var(--lear-brand-rgb),0.5) } 100% { box-shadow: 0 0 0 22px rgba(var(--lear-brand-rgb),0) } }
+@keyframes pulse-ring-cyan { 0% { box-shadow: 0 0 0 0 rgba(var(--lear-cyan-rgb),0.5) } 100% { box-shadow: 0 0 0 22px rgba(var(--lear-cyan-rgb),0) } }
+@keyframes rise-fade-in { 0% { opacity: 0; transform: translateY(24px) scale(0.98) } 100% { opacity: 1; transform: none } }
+@keyframes drop-fade-in { 0% { opacity: 0; transform: translateY(-24px) } 100% { opacity: 1; transform: none } }
+@keyframes reveal-left { 0% { opacity: 0; transform: translateX(-30px) } 100% { opacity: 1; transform: none } }
+@keyframes reveal-right { 0% { opacity: 0; transform: translateX(30px) } 100% { opacity: 1; transform: none } }
+@keyframes tilt-in { 0% { opacity: 0; transform: perspective(800px) rotateX(12deg) translateY(18px) } 100% { opacity: 1; transform: none } }
+@keyframes swing-in { 0% { opacity: 0; transform: rotate(-6deg) scale(0.94) } 100% { opacity: 1; transform: none } }
+@keyframes glow-breathe { 0%,100% { filter: drop-shadow(0 0 6px rgba(var(--lear-brand-rgb),0.25)) } 50% { filter: drop-shadow(0 0 22px rgba(var(--lear-brand-rgb),0.55)) } }
+@keyframes glow-breathe-cyan { 0%,100% { filter: drop-shadow(0 0 6px rgba(var(--lear-cyan-rgb),0.2)) } 50% { filter: drop-shadow(0 0 22px rgba(var(--lear-cyan-rgb),0.5)) } }
+@keyframes glow-breathe-violet { 0%,100% { filter: drop-shadow(0 0 6px rgba(var(--lear-violet-rgb),0.2)) } 50% { filter: drop-shadow(0 0 22px rgba(var(--lear-violet-rgb),0.5)) } }
+@keyframes float-slow { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+@keyframes float-tilt { 0%,100% { transform: translateY(0) rotate(0) } 50% { transform: translateY(-8px) rotate(1.2deg) } }
+@keyframes orbit-slow { from { transform: rotate(0) translateX(10px) rotate(0) } to { transform: rotate(360deg) translateX(10px) rotate(-360deg) } }
+@keyframes shimmer-2 { 0% { background-position: -200% 0 } 100% { background-position: 200% 0 } }
+@keyframes text-flicker { 0%,100% { opacity: 1 } 33% { opacity: 0.86 } 66% { opacity: 0.95 } }
+@keyframes caret-blink { 0%,49% { opacity: 1 } 50%,100% { opacity: 0 } }
+@keyframes count-tick { 0% { transform: translateY(0.4em); opacity: 0 } 100% { transform: none; opacity: 1 } }
+@keyframes chip-in { 0% { opacity: 0; transform: scale(0.8) translateY(6px) } 100% { opacity: 1; transform: none } }
+@keyframes badge-pop { 0% { transform: scale(0) } 70% { transform: scale(1.15) } 100% { transform: scale(1) } }
+@keyframes toast-in { 0% { opacity: 0; transform: translateX(24px) scale(0.96) } 100% { opacity: 1; transform: none } }
+@keyframes toast-out { 0% { opacity: 1; transform: none } 100% { opacity: 0; transform: translateX(24px) scale(0.96) } }
+@keyframes modal-in { 0% { opacity: 0; transform: translateY(12px) scale(0.97) } 100% { opacity: 1; transform: none } }
+@keyframes backdrop-in { 0% { opacity: 0; backdrop-filter: blur(0) } 100% { opacity: 1 } }
+@keyframes drawer-in-left { 0% { transform: translateX(-100%) } 100% { transform: none } }
+@keyframes drawer-in-right { 0% { transform: translateX(100%) } 100% { transform: none } }
+@keyframes status-flash-success { 0% { background-color: rgba(var(--lear-success-rgb),0.28) } 100% { background-color: transparent } }
+@keyframes status-flash-danger { 0% { background-color: rgba(var(--lear-danger-rgb),0.28) } 100% { background-color: transparent } }
+@keyframes status-flash-warning { 0% { background-color: rgba(var(--lear-warning-rgb),0.28) } 100% { background-color: transparent } }
+@keyframes data-refresh { 0% { opacity: 0.35; filter: blur(2px) } 100% { opacity: 1; filter: none } }
+@keyframes spinner-dual { to { transform: rotate(360deg) } }
+@keyframes progress-indeterminate-2 { 0% { transform: translateX(-100%) scaleX(0.4) } 100% { transform: translateX(260%) scaleX(0.4) } }
+@keyframes wave-bars { 0%,100% { transform: scaleY(0.4) } 50% { transform: scaleY(1) } }
+@keyframes ripple-out { 0% { transform: scale(0); opacity: 0.55 } 100% { transform: scale(2.4); opacity: 0 } }
+@keyframes press-flash { 0% { filter: brightness(1.4) } 100% { filter: none } }
+@keyframes success-check { 0% { stroke-dashoffset: 48 } 100% { stroke-dashoffset: 0 } }
+@keyframes thinking-orb { 0%,100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(var(--lear-violet-rgb),0.4)) } 50% { transform: scale(1.08); filter: drop-shadow(0 0 20px rgba(var(--lear-violet-rgb),0.7)) } }
+@keyframes stream-shimmer { 0% { background-position: 0% 50% } 100% { background-position: 200% 50% } }
+@keyframes node-pulse { 0%,100% { opacity: 0.5; transform: scale(0.9) } 50% { opacity: 1; transform: scale(1.1) } }
+@keyframes line-draw { 0% { stroke-dashoffset: 100 } 100% { stroke-dashoffset: 0 } }
+@keyframes edge-flow { to { stroke-dashoffset: -40 } }
+@keyframes kenburns-a { 0% { transform: scale(1.04) translate(0,0) } 100% { transform: scale(1.14) translate(-2%,-2%) } }
+@keyframes kenburns-b { 0% { transform: scale(1.12) translate(1%,1%) } 100% { transform: scale(1.04) translate(-1%,0) } }
+@keyframes aurora-drift-2 { 0%,100% { transform: translate3d(0,0,0) } 50% { transform: translate3d(3%,-2%,0) } }
+@keyframes particle-rise { 0% { transform: translateY(20px); opacity: 0 } 20% { opacity: 1 } 100% { transform: translateY(-30px); opacity: 0 } }
+@keyframes glow-pan { 0% { background-position: 0% 50% } 50% { background-position: 100% 50% } 100% { background-position: 0% 50% } }
+
+/* fx-* utilities for the cinema pack (opt-in, GPU-only) */
+.fx-holo-shift { animation: holo-shift 8s ease-in-out infinite }
+.fx-glow-breathe { animation: glow-breathe 3.2s ease-in-out infinite }
+.fx-glow-breathe-cyan { animation: glow-breathe-cyan 3.2s ease-in-out infinite }
+.fx-glow-breathe-violet { animation: glow-breathe-violet 3.2s ease-in-out infinite }
+.fx-float-slow { animation: float-slow 6s ease-in-out infinite }
+.fx-float-tilt { animation: float-tilt 7s ease-in-out infinite }
+.fx-rise-fade { animation: rise-fade-in 0.5s var(--ease-decelerate) both }
+.fx-tilt-in { animation: tilt-in 0.55s var(--ease-decelerate) both }
+.fx-chip-in { animation: chip-in 0.4s var(--ease-spring) both }
+.fx-badge-pop { animation: badge-pop 0.4s var(--ease-spring) both }
+.fx-thinking-orb { animation: thinking-orb 1.8s ease-in-out infinite }
+.fx-node-pulse { animation: node-pulse 2.4s ease-in-out infinite }
+.fx-kenburns-a { animation: kenburns-a 18s ease-in-out infinite alternate }
+.fx-kenburns-b { animation: kenburns-b 18s ease-in-out infinite alternate }
+
+@media (prefers-reduced-motion: reduce) {
+  .fx-holo-shift, .fx-glow-breathe, .fx-glow-breathe-cyan, .fx-glow-breathe-violet,
+  .fx-float-slow, .fx-float-tilt, .fx-thinking-orb, .fx-node-pulse,
+  .fx-kenburns-a, .fx-kenburns-b { animation: none !important }
+}
+
+/* =============================================================================
+   SOUND CONTROL — shared styling for the mute + volume widget
+   ========================================================================== */
+.sndctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px 8px 10px;
+  border-radius: 9999px;
+  border: 1px solid rgba(232, 180, 74, 0.28);
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px) saturate(1.2);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.55);
+  transition: border-color 200ms ease, box-shadow 200ms ease;
+}
+.sndctl:hover {
+  border-color: rgba(232, 180, 74, 0.55);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 22px rgba(232, 180, 74, 0.18);
+}
+.sndctl.is-off { opacity: 0.66; }
+
+.sndctl-toggle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid rgba(232, 180, 74, 0.3);
+  background: rgba(232, 180, 74, 0.1);
+  color: #f2cd7c;
+  cursor: pointer;
+  transition: transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1), background-color 180ms ease;
+}
+.sndctl-toggle:hover { transform: scale(1.1); background: rgba(232, 180, 74, 0.2); }
+.sndctl-toggle:active { transform: scale(0.94); }
+.sndctl.is-on .sndctl-toggle { box-shadow: 0 0 16px rgba(232, 180, 74, 0.4); }
+
+.sndctl-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 108px;
+  height: 4px;
+  border-radius: 9999px;
+  background:
+    linear-gradient(90deg, #f7e7c3 0%, #e8b44a var(--fill, 60%), rgba(255, 255, 255, 0.14) var(--fill, 60%));
+  cursor: pointer;
+  outline: none;
+}
+.sndctl-slider:disabled { cursor: not-allowed; filter: grayscale(1); }
+.sndctl-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fffaf0;
+  border: 2px solid #e8b44a;
+  box-shadow: 0 0 12px rgba(232, 180, 74, 0.8);
+  transition: transform 140ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.sndctl-slider::-webkit-slider-thumb:hover { transform: scale(1.25); }
+.sndctl-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fffaf0;
+  border: 2px solid #e8b44a;
+  box-shadow: 0 0 12px rgba(232, 180, 74, 0.8);
+}
+.sndctl-slider:focus-visible { outline: 2px solid rgba(247, 231, 195, 0.9); outline-offset: 4px; }
+
+.sndctl-value {
+  min-width: 42px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: rgba(242, 205, 124, 0.85);
+  text-align: right;
+}
+.sndctl.is-compact .sndctl-slider { width: 76px; }

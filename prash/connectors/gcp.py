@@ -1,0 +1,372 @@
+"""GCP Compute Engine read-only connector with execution capabilities.
+
+Reads credentials from the injected CredentialStore per Lear philosophy.
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import subprocess
+import time
+from typing import Any, Dict, Mapping
+
+try:
+    from google.oauth2 import service_account
+    import google.auth
+    from googleapiclient import discovery
+    from googleapiclient.errors import HttpError
+    _HAS_GCP = True
+except ImportError:
+    _HAS_GCP = False
+
+from .base import Connector, ConnectorEvent, ConnectorState, ResourceState, WatchHandle
+
+class GCPRunCommandFailedNeedsSSH(Exception):
+    """Raised when GCP execution fails and requires an SSH PEM file to proceed."""
+    pass
+
+
+class GCPConnector(Connector):
+    name = "gcp"
+    read_capabilities = ("instance_status", "logs", "stats", "watch")
+    write_capabilities = ("execute",)
+
+    def __init__(self, credentials: Mapping[str, Any]):
+        super().__init__(credentials)
+        self.project_id = self.credentials.get("GCP_PROJECT_ID")
+        self.region = self.credentials.get("GCP_REGION", "us-central1")
+        self.credentials_path = self.credentials.get("GOOGLE_APPLICATION_CREDENTIALS")
+        self._authenticated: bool | None = None
+        self._creds = None
+        self._zone_cache: Dict[str, str] = {}
+
+    def authenticate(self) -> bool:
+        if self._authenticated is not None:
+            return self._authenticated
+
+        if not self.project_id:
+            self.auth_error = "GCP project ID is required"
+            self._authenticated = False
+            return False
+
+        explicit_service_credentials = bool(self.credentials_path)
+        sdk_error = None
+        if _HAS_GCP:
+            try:
+                if explicit_service_credentials:
+                    if not os.path.isfile(self.credentials_path):
+                        raise FileNotFoundError(f"GCP service account file not found: {self.credentials_path}")
+                    self._creds = service_account.Credentials.from_service_account_file(self.credentials_path)
+                else:
+                    self._creds, _ = google.auth.default()
+                compute = discovery.build("compute", "v1", credentials=self._creds, cache_discovery=False)
+                project = compute.projects().get(project=self.project_id).execute()
+                project_identity = project.get("name") or self.project_id
+                self.auth_identity = {"project": project_identity}
+                self.auth_error = None
+                self._authenticated = True
+                return True
+            except Exception as exc:
+                sdk_error = exc
+                if explicit_service_credentials:
+                    self.auth_identity = {}
+                    self.auth_error = str(exc)
+                    self._authenticated = False
+                    return False
+
+        if explicit_service_credentials:
+            self.auth_error = str(sdk_error or "GCP SDK is required to validate service account credentials")
+            self._authenticated = False
+            return False
+
+        # Fallback to gcloud only when no service account file was supplied.
+        try:
+            result = subprocess.run(
+                ["gcloud", "projects", "describe", self.project_id, "--format", "json"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            project = json.loads(result.stdout or "{}")
+            project_identity = project.get("name") or project.get("projectId")
+            self.auth_identity = {"project": project_identity} if project_identity else {}
+            self.auth_error = None
+            self._authenticated = True
+        except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError) as exc:
+            self.auth_identity = {}
+            self.auth_error = str(exc if not sdk_error else sdk_error)
+            self._authenticated = False
+
+        return self._authenticated
+
+    def _get_zone(self, instance_name: str) -> str | None:
+        if instance_name in self._zone_cache:
+            return self._zone_cache[instance_name]
+
+        if _HAS_GCP and self._creds:
+            try:
+                compute = discovery.build('compute', 'v1', credentials=self._creds, cache_discovery=False)
+                request = compute.instances().aggregatedList(project=self.project_id)
+                while request is not None:
+                    response = request.execute()
+                    for name, instances_scoped_list in response.get('items', {}).items():
+                        for instance in instances_scoped_list.get('instances', []):
+                            if instance['name'] == instance_name:
+                                zone = instance['zone'].split('/')[-1]
+                                self._zone_cache[instance_name] = zone
+                                return zone
+                    request = compute.instances().aggregatedList_next(previous_request=request, previous_response=response)
+            except HttpError:
+                pass
+        else:
+            try:
+                res = subprocess.run(
+                    ["gcloud", "compute", "instances", "list", "--filter", f"name={instance_name}", "--format", "value(zone)", "--project", self.project_id],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                zone = res.stdout.strip()
+                if zone:
+                    self._zone_cache[instance_name] = zone
+                    return zone
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                pass
+        return None
+
+    def locate(self, resource: str) -> Dict[str, Any]:
+        """Locate GCE instance."""
+        if not self.authenticate():
+            return {}
+
+        zone = self._get_zone(resource)
+        if not zone:
+            return {}
+
+        if _HAS_GCP and self._creds:
+            try:
+                compute = discovery.build('compute', 'v1', credentials=self._creds, cache_discovery=False)
+                instance = compute.instances().get(project=self.project_id, zone=zone, instance=resource).execute()
+                return {
+                    "instance_name": instance['name'],
+                    "zone": zone,
+                    "machine_type": instance['machineType'].split('/')[-1],
+                    "state": instance['status']
+                }
+            except HttpError:
+                return {}
+        else:
+            try:
+                res = subprocess.run(
+                    ["gcloud", "compute", "instances", "describe", resource, "--zone", zone, "--project", self.project_id, "--format", "json"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                data = json.loads(res.stdout)
+                return {
+                    "instance_name": data.get('name'),
+                    "zone": zone,
+                    "machine_type": data.get('machineType', '').split('/')[-1],
+                    "state": data.get('status')
+                }
+            except (subprocess.CalledProcessError, FileNotFoundError, json.JSONDecodeError):
+                return {}
+
+    def poll_state(self, resource: str, **kwargs: Any) -> ResourceState:
+        if not self.authenticate():
+            return ResourceState(resource, ConnectorState.UNKNOWN, {"error": "unauthenticated"})
+
+        instance_info = self.locate(resource)
+        if not instance_info:
+            return ResourceState(resource, ConnectorState.NOT_FOUND, {})
+            
+        state_name = instance_info["state"].upper()
+        if state_name == "RUNNING":
+            state = ConnectorState.HEALTHY
+        elif state_name in ("STOPPED", "TERMINATED", "SUSPENDED"):
+            state = ConnectorState.STABLE
+        elif state_name in ("PROVISIONING", "STAGING"):
+            state = ConnectorState.DEPLOYING
+        else:
+            state = ConnectorState.UNKNOWN
+
+        return ResourceState(resource, state, instance_info)
+
+    def fetch_logs(self, resource: str, **kwargs: Any) -> list[str]:
+        if not self.authenticate():
+            return []
+
+        zone = self._get_zone(resource)
+        if not zone:
+            return []
+            
+        try:
+            res = subprocess.run(
+                ["gcloud", "compute", "instances", "get-serial-port-output", resource, "--zone", zone, "--project", self.project_id],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return res.stdout.splitlines()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            return []
+
+    def execute_command(self, resource: str, command: str, **kwargs: Any) -> Dict[str, Any]:
+        """Execute command via gcloud compute ssh."""
+        if not self.authenticate():
+            return {"error": "unauthenticated"}
+
+        zone = self._get_zone(resource)
+        if not zone:
+            return {"error": f"Instance {resource} not found"}
+            
+        try:
+            res = subprocess.run(
+                ["gcloud", "compute", "ssh", resource, "--zone", zone, "--project", self.project_id, "--command", command, "--quiet"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            return {
+                "source": "gcloud-ssh",
+                "status": "Success",
+                "stdout": res.stdout,
+                "stderr": res.stderr
+            }
+        except Exception as e:
+            pem_path = kwargs.get("pem_path")
+            if not pem_path:
+                raise GCPRunCommandFailedNeedsSSH(f"Execution failed: {e}. A PEM file is required for native SSH fallback.")
+
+            if not os.path.exists(pem_path):
+                return {"error": f"PEM file not found at {pem_path}"}
+            
+            try:
+                ip_res = subprocess.run(
+                    ["gcloud", "compute", "instances", "describe", resource, "--zone", zone, "--project", self.project_id, "--format", "get(networkInterfaces[0].accessConfigs[0].natIP)"],
+                    capture_output=True,
+                    text=True,
+                    check=True
+                )
+                public_ip = ip_res.stdout.strip()
+                if not public_ip:
+                    return {"error": "Instance does not have a Public IP."}
+            except Exception:
+                return {"error": "Failed to get Public IP for SSH."}
+            
+            ssh_cmd = [
+                "ssh", "-i", pem_path, "-o", "StrictHostKeyChecking=no", "-o", "ConnectTimeout=10",
+                f"{kwargs.get('ssh_user', 'ubuntu')}@{public_ip}", command
+            ]
+            
+            try:
+                result = subprocess.run(ssh_cmd, capture_output=True, text=True, check=True)
+                return {
+                    "source": "ssh",
+                    "status": "Success",
+                    "stdout": result.stdout,
+                    "stderr": result.stderr
+                }
+            except subprocess.CalledProcessError as ssh_err:
+                return {
+                    "source": "ssh",
+                    "status": "Failed",
+                    "stdout": ssh_err.stdout,
+                    "stderr": ssh_err.stderr,
+                    "exit_code": ssh_err.returncode
+                }
+
+    def watch(self, target: str, **kwargs: Any) -> WatchHandle:
+        if not self.authenticate():
+            raise RuntimeError("GCP Connector failed to authenticate")
+        zone = self._get_zone(target)
+        if not zone:
+            raise ValueError(f"Instance {target} not found in project")
+        return GCPWatchHandle(self, target)
+
+    def get_stats(self, target: str, since: datetime.datetime | None = None, **kwargs: Any) -> list[ConnectorEvent]:
+        if not self.authenticate():
+            return []
+        zone = self._get_zone(target)
+        if not zone:
+            return []
+
+        events: list[ConnectorEvent] = []
+        now = datetime.datetime.utcnow()
+        if not since:
+            since = now - datetime.timedelta(minutes=15)
+
+        # 1. Cloud Monitoring
+        if _HAS_GCP and self._creds:
+            try:
+                monitoring = discovery.build('monitoring', 'v3', credentials=self._creds, cache_discovery=False)
+                ts = monitoring.projects().timeSeries().list(
+                    name=f"projects/{self.project_id}",
+                    filter=f'metric.type="compute.googleapis.com/instance/cpu/utilization" AND metric.labels.instance_name="{target}"',
+                    interval_startTime=since.isoformat("T") + "Z",
+                    interval_endTime=now.isoformat("T") + "Z",
+                    view="FULL"
+                ).execute()
+                
+                for series in ts.get('timeSeries', []):
+                    for point in series.get('points', []):
+                        val = point.get('value', {}).get('doubleValue', 0.0)
+                        if val > 0.8: # Threshold alert
+                            pt_time = datetime.datetime.fromisoformat(point['interval']['endTime'].replace('Z', '+00:00')).replace(tzinfo=None)
+                            events.append({
+                                "timestamp": pt_time,
+                                "connector": "gcp",
+                                "event_type": "HighCPUUtilization",
+                                "summary": f"High CPU utilization detected on {target}: {val*100:.1f}%",
+                                "raw": {"value": val}
+                            })
+                            
+                # Also Audit Logs
+                logging_svc = discovery.build('logging', 'v2', credentials=self._creds, cache_discovery=False)
+                logs = logging_svc.entries().list(body={
+                    "resourceNames": [f"projects/{self.project_id}"],
+                    "filter": f'resource.type="gce_instance" AND resource.labels.instance_id="{target}" AND protoPayload.methodName="v1.compute.instances.stop"',
+                    "pageSize": 50
+                }).execute()
+                
+                for entry in logs.get('entries', []):
+                    entry_time_str = entry.get('timestamp', '')
+                    if entry_time_str:
+                        entry_time = datetime.datetime.fromisoformat(entry_time_str.replace('Z', '+00:00')).replace(tzinfo=None)
+                        if entry_time >= since:
+                            events.append({
+                                "timestamp": entry_time,
+                                "connector": "gcp",
+                                "event_type": "InstanceStopped",
+                                "summary": f"Instance {target} was stopped",
+                                "raw": entry
+                            })
+            except Exception:
+                pass
+        
+        events.sort(key=lambda x: x["timestamp"])
+        return events
+
+class GCPWatchHandle(WatchHandle):
+    def __init__(self, connector: GCPConnector, target: str):
+        self._connector = connector
+        self._target = target
+        self._active = True
+
+    @property
+    def is_active(self) -> bool:
+        return self._active
+
+    @property
+    def connector(self) -> str:
+        return "gcp"
+
+    @property
+    def target(self) -> str:
+        return self._target
+
+    def stop(self) -> None:
+        self._active = False

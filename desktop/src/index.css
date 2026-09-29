@@ -1,0 +1,174 @@
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap");
+
+/* =============================================================================
+   LEAR GLOBAL STYLES — rebuilt on the U-01 token system
+   Load order matters: tokens → animations → tailwind layers → app rules.
+   ========================================================================== */
+@import "./styles/tokens.css";
+@import "./styles/animations.css";
+@import "./styles/animations.generated.css";
+@import "tailwindcss";
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-neutral-100);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  code, kbd, pre, .font-mono {
+    font-family: var(--font-mono);
+  }
+
+  ::selection {
+    background: rgba(var(--lear-brand-rgb), 0.32);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 2px solid rgba(var(--lear-brand-rgb), 0.65);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm);
+  }
+
+  /* Premium scrollbar — thin, glass, brand on hover */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgba(var(--lear-brand-rgb), 0.45);
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.14) transparent;
+  }
+
+  /* Respect motion accessibility globally */
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* Glass surfaces (preserved API, upgraded internals) */
+  .glass-panel {
+    background: rgba(14, 19, 31, 0.66);
+    backdrop-filter: blur(var(--blur-glass)) saturate(1.25);
+    -webkit-backdrop-filter: blur(var(--blur-glass)) saturate(1.25);
+    border: 1px solid var(--color-border-subtle);
+    box-shadow: var(--shadow-inner-hairline);
+  }
+
+  .glass-card {
+    background: rgba(20, 27, 44, 0.58);
+    backdrop-filter: blur(12px) saturate(1.2);
+    border: 1px solid var(--color-border-subtle);
+    transition:
+      transform var(--dur-fast) var(--ease-decelerate),
+      border-color var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard);
+  }
+
+  .glass-card:hover {
+    border-color: rgba(var(--lear-brand-rgb), 0.35);
+    box-shadow: var(--shadow-card), 0 0 18px rgba(var(--lear-brand-rgb), 0.08);
+    transform: translateY(-1px);
+  }
+
+  .glass-heavy {
+    background: rgba(10, 13, 20, 0.82);
+    backdrop-filter: blur(var(--blur-heavy)) saturate(1.35);
+    -webkit-backdrop-filter: blur(var(--blur-heavy)) saturate(1.35);
+    border: 1px solid var(--color-border-subtle);
+  }
+
+  /* Brand glow text helpers */
+  .text-glow-brand {
+    text-shadow: 0 0 22px rgba(var(--lear-brand-rgb), 0.55), 0 0 64px rgba(var(--lear-brand-rgb), 0.22);
+  }
+  .text-glow-cyan {
+    text-shadow: 0 0 22px rgba(var(--lear-cyan-rgb), 0.5), 0 0 64px rgba(var(--lear-cyan-rgb), 0.2);
+  }
+
+  /* Animated conic border used on hero chips and the brand mark */
+  .ring-conic {
+    position: relative;
+  }
+  .ring-conic::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: conic-gradient(from var(--ring-angle, 0deg), rgba(var(--lear-brand-rgb), 0.9), rgba(var(--lear-violet-rgb), 0.5), rgba(var(--lear-cyan-rgb), 0.8), rgba(var(--lear-brand-rgb), 0.9));
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    animation: ring-spin 6s linear infinite;
+    pointer-events: none;
+  }
+
+  /* Compatibility animation kept from v1 (used on watcher dots) */
+  .pulse-radar {
+    animation: pulse-radar 2s infinite cubic-bezier(0.45, 0, 0.55, 1);
+  }
+
+  /* FPS guardrails — everything animated should already be transform/opacity */
+  .will-transform {
+    will-change: transform;
+  }
+  .gpu-layer {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .bg-brand-gradient {
+    background-image: var(--gradient-brand);
+  }
+  .bg-aurora {
+    background-image: var(--gradient-aurora);
+  }
+  .clip-text-gradient {
+    background-image: var(--gradient-brand);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+}

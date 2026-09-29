@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+.venv/
+venv/
+env/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+package-lock.json
+desktop/dist/
+
+# Env / secrets — Prash v2's whole trust model is that these never get committed
+.env
+.env.*
+!.env.example
+*.pem
+# GCP service-account keys download as {project-id}-{key-id}.json; the previous
+# entry for this only matched one specific key-id by exact filename (silently
+# stopped ignoring the moment a key got rotated/replaced) -- pattern-match the
+# whole project instead.
+prash-by-drufiy-*.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+
+# Local Prash state (audit logs, local run artifacts)
+.prash/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+*.auto.tfvars
+prash.yaml
+
+# Lock files (uv)
+uv.lock
+

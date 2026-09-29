@@ -1,0 +1,914 @@
+"""Track B: the Kubernetes connector (prash/connectors/kubernetes.py).
+
+Unit-level: the real kubernetes.client.CoreV1Api/AppsV1Api are mocked so
+these run anywhere, no cluster needed -- CI included. The connector was
+separately verified against a real live kind cluster and a genuine
+CrashLoopBackOff pod during development (see PRASH_V2.md, 2026-08-09);
+these tests lock in that verified behaviour so it can't silently regress.
+"""
+
+from __future__ import annotations
+
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+from kubernetes.client.rest import ApiException
+
+from prash.connectors import kubernetes as k8s
+
+
+@pytest.fixture(autouse=True)
+def _reset_client_singleton():
+    """The module caches a CoreV1Api singleton; make sure each test gets
+    a clean patch instead of leaking the previous test's mock.
+    """
+    k8s._core_api = None
+    yield
+    k8s._core_api = None
+
+
+def _container_status(name="app", ready=True, restart_count=0, waiting_reason=None, terminated_reason=None, last_terminated_reason=None):
+    waiting = SimpleNamespace(reason=waiting_reason) if waiting_reason else None
+    terminated = SimpleNamespace(reason=terminated_reason) if terminated_reason else None
+    last_terminated = SimpleNamespace(reason=last_terminated_reason) if last_terminated_reason else None
+    return SimpleNamespace(
+        name=name,
+        ready=ready,
+        restart_count=restart_count,
+        state=SimpleNamespace(waiting=waiting, terminated=terminated),
+        last_state=SimpleNamespace(terminated=last_terminated),
+    )
+
+
+def _pod(name="broken-app-abc", namespace="prash-demo", phase="Running", container_statuses=None, start_time=None):
+    return SimpleNamespace(
+        metadata=SimpleNamespace(name=name, namespace=namespace, creation_timestamp=start_time),
+        status=SimpleNamespace(phase=phase, container_statuses=container_statuses or [], start_time=start_time),
+    )
+
+
+def _patched_core_api(monkeypatch):
+    fake_api = MagicMock()
+    monkeypatch.setattr(k8s, "_client", lambda: fake_api)
+    return fake_api
+
+
+def test_authenticate_exposes_cluster_context_and_namespace_count(monkeypatch):
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    monkeypatch.delenv("KUBE_CONTEXT", raising=False)
+    namespaces = SimpleNamespace(items=[object(), object()])
+    core = MagicMock()
+    core.list_namespace.return_value = namespaces
+    monkeypatch.setattr(k8s.config, "list_kube_config_contexts", lambda **kwargs: (
+        [{"name": "kind-lear", "context": {"cluster": "kind-lear"}}],
+        {"name": "kind-lear"},
+    ))
+    monkeypatch.setattr(k8s.config, "load_kube_config", lambda **kwargs: None)
+    monkeypatch.setattr(k8s.client, "ApiClient", MagicMock())
+    monkeypatch.setattr(k8s.client, "CoreV1Api", lambda api_client: core)
+    monkeypatch.setattr(k8s.client, "AppsV1Api", MagicMock())
+
+    connector = k8s.KubernetesConnector({})
+    assert connector.authenticate() is True
+    assert connector.auth_identity == {
+        "cluster": "kind-lear",
+        "context": "kind-lear",
+        "namespace_count": 2,
+    }
+    assert connector.auth_error is None
+
+
+# ── get_pod_status: the four states Track D + Track E both key off ─────────
+
+def test_crash_loop_back_off_detected(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        container_statuses=[_container_status(ready=False, restart_count=18, waiting_reason="CrashLoopBackOff")]
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert len(result) == 1
+    assert result[0].problem == "CrashLoopBackOff"
+    assert result[0].restart_count == 18
+    assert result[0].ready is False
+
+
+def test_image_pull_back_off_detected(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        phase="Pending",
+        container_statuses=[_container_status(ready=False, waiting_reason="ImagePullBackOff")],
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "ImagePullBackOff"
+
+
+def test_err_image_pull_maps_to_image_pull_back_off(monkeypatch):
+    """ErrImagePull is the transient state before it settles into
+    ImagePullBackOff -- both must map to the same category the watcher
+    and brain share (PRASH_V2.md §8), not two different unhandled states.
+    """
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        phase="Pending",
+        container_statuses=[_container_status(ready=False, waiting_reason="ErrImagePull")],
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "ImagePullBackOff"
+
+
+def test_oom_killed_detected_from_last_state(monkeypatch):
+    """The common real shape: container restarted after OOM, so the OOM
+    reason lives in last_state.terminated, not current state.
+    """
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        container_statuses=[_container_status(ready=True, restart_count=1, last_terminated_reason="OOMKilled")]
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "OOMKilled"
+
+
+def test_stuck_pending_after_threshold(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    old_start = datetime.now(timezone.utc) - timedelta(seconds=k8s._STUCK_THRESHOLD_SECONDS + 30)
+    fake_api.read_namespaced_pod.return_value = _pod(phase="Pending", start_time=old_start)
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "StuckPending"
+
+
+def test_recently_pending_is_not_yet_stuck(monkeypatch):
+    """A pod Pending for 10 seconds is normal scheduling latency, not a
+    problem -- must not false-positive during ordinary startup.
+    """
+    fake_api = _patched_core_api(monkeypatch)
+    recent_start = datetime.now(timezone.utc) - timedelta(seconds=10)
+    fake_api.read_namespaced_pod.return_value = _pod(phase="Pending", start_time=recent_start)
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem is None
+
+
+def test_healthy_pod_has_no_problem(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        container_statuses=[_container_status(ready=True, restart_count=0)]
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem is None
+
+
+def test_not_ready_with_restarts_and_no_waiting_reason_is_still_crash_loop(monkeypatch):
+    """Real CI failure caught live (2026-08-09): a genuinely crash-looping
+    pod polled mid-restart-attempt, when container_statuses.waiting is
+    transiently empty (the split-second between a backoff wait ending and
+    the actual restart attempt), came back problem=None entirely -- not
+    even the StuckPending fallback, since a young pod (few restarts) hasn't
+    hit the 120s age threshold yet. restart_count > 0 is itself sufficient
+    independent evidence this is CrashLoopBackOff, regardless of what the
+    current instantaneous waiting.reason snapshot says.
+    """
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        phase="Running",
+        # No waiting/terminated reason set at all -- exactly the mid-restart
+        # snapshot that caused the real CI failure.
+        container_statuses=[_container_status(ready=False, restart_count=3)],
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "CrashLoopBackOff"
+
+
+def test_not_ready_with_zero_restarts_and_no_waiting_reason_stays_unclassified(monkeypatch):
+    """The restart_count>0 fallback must not fire for a pod that's simply
+    still starting up for the first time (0 restarts) -- that's normal
+    startup latency, not evidence of crash-looping. Age-gated StuckPending
+    (tested separately) is what should eventually catch a pod stuck like
+    this for too long, not an immediate CrashLoopBackOff label."""
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        phase="Running",
+        container_statuses=[_container_status(ready=False, restart_count=0)],
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem is None
+
+
+def test_multi_container_pod_flags_the_broken_one(monkeypatch):
+    """A healthy sidecar must not mask a crash-looping main container."""
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.return_value = _pod(
+        container_statuses=[
+            _container_status(name="sidecar", ready=True, restart_count=0),
+            _container_status(name="main", ready=False, restart_count=9, waiting_reason="CrashLoopBackOff"),
+        ]
+    )
+
+    result = k8s.get_pod_status("prash-demo", "broken-app-abc")
+
+    assert result[0].problem == "CrashLoopBackOff"
+    assert result[0].ready is False  # not all containers ready
+
+
+def test_pod_not_found_returns_empty_list_not_raise(monkeypatch):
+    """Track C's restart-pod verify() step relies on this: an empty list
+    is its 'pod missing' signal, so this must never raise for 404.
+    """
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod.side_effect = ApiException(status=404)
+
+    result = k8s.get_pod_status("prash-demo", "does-not-exist")
+
+    assert result == []
+
+
+def test_list_all_pods_in_namespace_when_no_name_given(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.list_namespaced_pod.return_value = SimpleNamespace(
+        items=[_pod(name="a"), _pod(name="b")]
+    )
+
+    result = k8s.get_pod_status("prash-demo")
+
+    assert [p.name for p in result] == ["a", "b"]
+
+
+# ── get_pod_logs: the previous-attempt fallback, verified live 2026-08-09 ──
+# _preload_content=False (added 2026-08-17, see _read_pod_log_raw's docstring
+# for the real bug this fixed) means read_namespaced_pod_log returns a
+# response-like object with .data (bytes) + .release_conn(), not a plain str
+# -- these mocks reflect the real client shape, not a plain string.
+
+def _fake_log_response(text: str):
+    return type("FakeLogResponse", (), {"data": text.encode(), "release_conn": lambda self: None})()
+
+
+def test_logs_falls_back_to_previous_when_current_is_empty(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod_log.side_effect = [
+        _fake_log_response(""),
+        _fake_log_response("simulated failure: config file missing\n"),
+    ]
+
+    result = k8s.get_pod_logs("prash-demo", "broken-app-abc")
+
+    assert result == "simulated failure: config file missing\n"
+    assert fake_api.read_namespaced_pod_log.call_count == 2
+    _, second_call_kwargs = fake_api.read_namespaced_pod_log.call_args_list[1]
+    assert second_call_kwargs["previous"] is True
+
+
+def test_logs_returns_current_without_fallback_when_present(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod_log.return_value = _fake_log_response("app started ok\n")
+
+    result = k8s.get_pod_logs("prash-demo", "healthy-pod")
+
+    assert result == "app started ok\n"
+    assert fake_api.read_namespaced_pod_log.call_count == 1
+
+
+def test_logs_returns_empty_string_not_raise_when_pod_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod_log.side_effect = ApiException(status=404)
+
+    result = k8s.get_pod_logs("prash-demo", "does-not-exist")
+
+    assert result == ""
+
+
+def test_logs_are_real_decoded_text_not_a_stringified_bytes_wrapper(monkeypatch):
+    """Regression test for the real bug found live 2026-08-17 building
+    `prash logs`: without _preload_content=False, this kubernetes client
+    version (36.0.3) silently returned the log text wrapped as the literal
+    characters "b'...'" instead of decoded text -- a valid non-empty string,
+    so nothing else here caught it. Confirmed live against a real pod before
+    this test was written; asserting the shape here so it can't regress."""
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_pod_log.return_value = _fake_log_response("real log line\n")
+
+    result = k8s.get_pod_logs("prash-demo", "any-pod")
+
+    assert result == "real log line\n"
+    assert not result.startswith("b'")
+    _, call_kwargs = fake_api.read_namespaced_pod_log.call_args
+    assert call_kwargs["_preload_content"] is False
+
+
+# ── stream_pod_logs: live-follow, sprint-2 Kubernetes Depth (2026-08-17) ────
+
+def _fake_streaming_response(lines: list[str]):
+    released = {"value": False}
+    resp = type(
+        "FakeStreamingResponse",
+        (),
+        {
+            "__iter__": lambda self: iter(line.encode() for line in lines),
+            "release_conn": lambda self: released.__setitem__("value", True),
+        },
+    )()
+    return resp, released
+
+
+def test_stream_pod_logs_yields_decoded_lines_and_follows(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    resp, released = _fake_streaming_response(["line one\n", "line two\n"])
+    fake_api.read_namespaced_pod_log.return_value = resp
+
+    result = list(k8s.stream_pod_logs("prash-demo", "api", tail_lines=10))
+
+    assert result == ["line one", "line two"]
+    assert released["value"] is True
+    _, call_kwargs = fake_api.read_namespaced_pod_log.call_args
+    assert call_kwargs["follow"] is True
+    assert call_kwargs["_preload_content"] is False
+
+
+def test_stream_pod_logs_releases_connection_on_early_break(monkeypatch):
+    """Breaking out of iteration early (e.g. Ctrl+C in the CLI) must not
+    leak the underlying connection -- the finally: release_conn() is the
+    whole point of testing this separately from the happy path above."""
+    fake_api = _patched_core_api(monkeypatch)
+    resp, released = _fake_streaming_response(["line one\n", "line two\n", "line three\n"])
+    fake_api.read_namespaced_pod_log.return_value = resp
+
+    gen = k8s.stream_pod_logs("prash-demo", "api", tail_lines=10)
+    assert next(gen) == "line one"
+    gen.close()
+
+    assert released["value"] is True
+
+
+# ── get_pod_events ──────────────────────────────────────────────────────────
+
+def test_events_sorted_most_recent_first(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    older = SimpleNamespace(
+        type="Normal", reason="Pulling", message="Pulling image", count=1,
+        last_timestamp=datetime(2026, 8, 9, 12, 31, 0, tzinfo=timezone.utc), event_time=None,
+    )
+    newer = SimpleNamespace(
+        type="Warning", reason="BackOff", message="Back-off restarting", count=5,
+        last_timestamp=datetime(2026, 8, 9, 12, 33, 0, tzinfo=timezone.utc), event_time=None,
+    )
+    fake_api.list_namespaced_event.return_value = SimpleNamespace(items=[older, newer])
+
+    result = k8s.get_pod_events("prash-demo", "broken-app-abc")
+
+    assert [e["reason"] for e in result] == ["BackOff", "Pulling"]
+
+
+def test_events_empty_list_when_none_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.list_namespaced_event.return_value = SimpleNamespace(items=[])
+
+    result = k8s.get_pod_events("prash-demo", "broken-app-abc")
+
+    assert result == []
+
+
+# ── restart_pod ──────────────────────────────────────────────────────────────
+
+def test_restart_pod_deletes_and_returns_true(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+
+    ok = k8s.restart_pod("prash-demo", "broken-app-abc")
+
+    assert ok is True
+    fake_api.delete_namespaced_pod.assert_called_once_with(name="broken-app-abc", namespace="prash-demo")
+
+
+def test_restart_pod_returns_false_when_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.delete_namespaced_pod.side_effect = ApiException(status=404)
+
+    ok = k8s.restart_pod("prash-demo", "does-not-exist")
+
+    assert ok is False
+
+
+# ── get_previous_revision: powers Track C's rollback, no separate store ────
+
+def test_previous_revision_found_when_two_exist(monkeypatch):
+    _patched_core_api(monkeypatch)
+    monkeypatch.setattr(k8s.client, "AppsV1Api", lambda api_client: MagicMock(
+        list_namespaced_replica_set=MagicMock(return_value=SimpleNamespace(items=[
+            SimpleNamespace(
+                metadata=SimpleNamespace(
+                    owner_references=[SimpleNamespace(kind="Deployment", name="broken-app")],
+                    annotations={"deployment.kubernetes.io/revision": "1"},
+                )
+            ),
+            SimpleNamespace(
+                metadata=SimpleNamespace(
+                    owner_references=[SimpleNamespace(kind="Deployment", name="broken-app")],
+                    annotations={"deployment.kubernetes.io/revision": "2"},
+                )
+            ),
+        ]))
+    ))
+
+    result = k8s.get_previous_revision("prash-demo", "broken-app")
+
+    assert result == {"revision": 1}
+
+
+def test_previous_revision_none_when_only_one_exists(monkeypatch):
+    _patched_core_api(monkeypatch)
+    monkeypatch.setattr(k8s.client, "AppsV1Api", lambda api_client: MagicMock(
+        list_namespaced_replica_set=MagicMock(return_value=SimpleNamespace(items=[
+            SimpleNamespace(
+                metadata=SimpleNamespace(
+                    owner_references=[SimpleNamespace(kind="Deployment", name="broken-app")],
+                    annotations={"deployment.kubernetes.io/revision": "1"},
+                )
+            ),
+        ]))
+    ))
+
+    result = k8s.get_previous_revision("prash-demo", "broken-app")
+
+    assert result is None
+
+
+def test_previous_revision_ignores_replicasets_from_other_deployments(monkeypatch):
+    _patched_core_api(monkeypatch)
+    monkeypatch.setattr(k8s.client, "AppsV1Api", lambda api_client: MagicMock(
+        list_namespaced_replica_set=MagicMock(return_value=SimpleNamespace(items=[
+            SimpleNamespace(
+                metadata=SimpleNamespace(
+                    owner_references=[SimpleNamespace(kind="Deployment", name="some-other-app")],
+                    annotations={"deployment.kubernetes.io/revision": "7"},
+                )
+            ),
+        ]))
+    ))
+
+    result = k8s.get_previous_revision("prash-demo", "broken-app")
+
+    assert result is None
+
+
+# ── get_configmap / update_configmap: sprint-2 Kubernetes Depth (2026-08-17) ─
+
+def test_get_configmap_returns_data(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_config_map.return_value = SimpleNamespace(data={"LOG_LEVEL": "info"})
+
+    result = k8s.get_configmap("prash-demo", "app-config")
+
+    assert result == {"LOG_LEVEL": "info"}
+
+
+def test_get_configmap_returns_none_when_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_config_map.side_effect = ApiException(status=404)
+
+    result = k8s.get_configmap("prash-demo", "does-not-exist")
+
+    assert result is None
+
+
+def test_update_configmap_merge_patches_only_the_given_keys(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.patch_namespaced_config_map.return_value = None
+
+    result = k8s.update_configmap("prash-demo", "app-config", {"LOG_LEVEL": "debug"})
+
+    assert result is True
+    _, call_kwargs = fake_api.patch_namespaced_config_map.call_args
+    assert call_kwargs["body"] == {"data": {"LOG_LEVEL": "debug"}}
+
+
+def test_update_configmap_returns_false_when_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.patch_namespaced_config_map.side_effect = ApiException(status=404)
+
+    result = k8s.update_configmap("prash-demo", "does-not-exist", {"K": "V"})
+
+    assert result is False
+
+
+# ── get_secret_keys / update_secret: never decode/hold plaintext values ────
+
+def test_get_secret_keys_returns_only_key_names_not_values(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_secret.return_value = SimpleNamespace(
+        data={"PASSWORD": "czNjcjN0", "USERNAME": "YWRtaW4="}
+    )
+
+    result = k8s.get_secret_keys("prash-demo", "db-creds")
+
+    assert result == ["PASSWORD", "USERNAME"]
+    assert "czNjcjN0" not in result
+    assert "YWRtaW4=" not in result
+
+
+def test_get_secret_keys_returns_none_when_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.read_namespaced_secret.side_effect = ApiException(status=404)
+
+    result = k8s.get_secret_keys("prash-demo", "does-not-exist")
+
+    assert result is None
+
+
+def test_update_secret_uses_string_data_not_manual_base64(monkeypatch):
+    """stringData lets the API server handle encoding server-side -- this
+    connector must never base64-encode (or otherwise transform) a secret
+    value itself, which is exactly what passing plain text via stringData
+    guarantees."""
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.patch_namespaced_secret.return_value = None
+
+    result = k8s.update_secret("prash-demo", "db-creds", {"PASSWORD": "plaintext-value"})
+
+    assert result is True
+    _, call_kwargs = fake_api.patch_namespaced_secret.call_args
+    assert call_kwargs["body"] == {"stringData": {"PASSWORD": "plaintext-value"}}
+
+
+def test_update_secret_returns_false_when_not_found(monkeypatch):
+    fake_api = _patched_core_api(monkeypatch)
+    fake_api.patch_namespaced_secret.side_effect = ApiException(status=404)
+
+    result = k8s.update_secret("prash-demo", "does-not-exist", {"K": "V"})
+
+    assert result is False
+
+# ── exec_in_pod: sprint-2 Kubernetes Depth (2026-08-17) ─────────────────────
+
+class _FakeWSResponse:
+    def __init__(self, stdout="", stderr="", returncode=0, raise_on_run=None):
+        self._stdout = stdout
+        self._stderr = stderr
+        self.returncode = returncode
+        self._raise_on_run = raise_on_run
+        self.closed = False
+
+    def run_forever(self, timeout=None):
+        if self._raise_on_run:
+            raise self._raise_on_run
+
+    def read_stdout(self, timeout=None):
+        return self._stdout
+
+    def read_stderr(self, timeout=None):
+        return self._stderr
+
+    def close(self):
+        self.closed = True
+
+
+def test_exec_in_pod_captures_stdout_and_exit_code(monkeypatch):
+    _patched_core_api(monkeypatch)
+    fake_resp = _FakeWSResponse(stdout="hello world\n", returncode=0)
+    monkeypatch.setattr("kubernetes.stream.stream", lambda fn, *a, **kw: fake_resp)
+
+    result = k8s.exec_in_pod("prash-demo", "api", ["sh", "-c", "echo hello world"])
+
+    assert result == {"stdout": "hello world\n", "stderr": "", "exit_code": 0}
+
+
+def test_exec_in_pod_captures_nonzero_exit_and_stderr(monkeypatch):
+    """A diagnostic command that legitimately exits non-zero (e.g. grep
+    finding nothing) is still a successful exec, at this layer -- the exit
+    code is just data, not conflated with connector-level failure."""
+    _patched_core_api(monkeypatch)
+    fake_resp = _FakeWSResponse(stderr="cat: /nope: No such file or directory\n", returncode=1)
+    monkeypatch.setattr("kubernetes.stream.stream", lambda fn, *a, **kw: fake_resp)
+
+    result = k8s.exec_in_pod("prash-demo", "api", ["sh", "-c", "cat /nope"])
+
+    assert result["exit_code"] == 1
+    assert "No such file" in result["stderr"]
+
+
+def test_exec_in_pod_passes_container_when_given(monkeypatch):
+    _patched_core_api(monkeypatch)
+    fake_resp = _FakeWSResponse()
+    captured = {}
+
+    def fake_stream(fn, *args, **kwargs):
+        captured.update(kwargs)
+        return fake_resp
+
+    monkeypatch.setattr("kubernetes.stream.stream", fake_stream)
+    k8s.exec_in_pod("prash-demo", "api", ["true"], container="sidecar")
+
+    assert captured["container"] == "sidecar"
+
+
+def test_exec_in_pod_truncates_huge_output(monkeypatch):
+    _patched_core_api(monkeypatch)
+    huge = "x" * 50_000
+    fake_resp = _FakeWSResponse(stdout=huge, returncode=0)
+    monkeypatch.setattr("kubernetes.stream.stream", lambda fn, *a, **kw: fake_resp)
+
+    result = k8s.exec_in_pod("prash-demo", "api", ["sh", "-c", "yes x"])
+
+    assert len(result["stdout"]) == k8s._EXEC_OUTPUT_CAP
+
+
+def test_exec_in_pod_always_closes_even_when_run_forever_raises(monkeypatch):
+    _patched_core_api(monkeypatch)
+    fake_resp = _FakeWSResponse(raise_on_run=TimeoutError("exec timed out"))
+    monkeypatch.setattr("kubernetes.stream.stream", lambda fn, *a, **kw: fake_resp)
+
+    with pytest.raises(TimeoutError):
+        k8s.exec_in_pod("prash-demo", "api", ["sleep", "999"])
+
+    assert fake_resp.closed is True
+
+
+# -- KubernetesConnector.locate(): resolving a Deployment/friendly name to
+# -- its actual running pod. Found live 2026-09-16: Lear Copilot correctly
+# -- diagnosed the crash-looping "broken-app" Deployment and proposed
+# -- `prash fix prash-demo/broken-app`, and execution failed outright with
+# -- "pod not found" -- the real pod is "broken-app-6b58dc6d7b-fphhd".
+
+def test_locate_returns_exact_name_when_a_pod_is_really_named_that():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()  # read_namespaced_pod succeeds by default (a Mock, not an exception)
+
+    result = conn.locate("prash-demo/broken-app")
+
+    assert result == {"namespace": "prash-demo", "name": "broken-app"}
+    conn.core_v1.list_namespaced_pod.assert_not_called()  # exact hit -- no need to list+guess
+
+
+def test_locate_falls_back_to_prefix_match_when_exact_name_is_a_deployment():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    conn.core_v1.read_namespaced_pod.side_effect = ApiException(status=404)
+    conn.core_v1.list_namespaced_pod.return_value = SimpleNamespace(items=[
+        SimpleNamespace(metadata=SimpleNamespace(name="broken-app-6b58dc6d7b-fphhd", deletion_timestamp=None)),
+        SimpleNamespace(metadata=SimpleNamespace(name="configmap-app-67f8795879-mmtzw", deletion_timestamp=None)),
+    ])
+
+    result = conn.locate("prash-demo/broken-app")
+
+    assert result == {"namespace": "prash-demo", "name": "broken-app-6b58dc6d7b-fphhd"}
+
+
+def test_locate_prefers_a_live_pod_over_one_being_terminated():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    conn.core_v1.read_namespaced_pod.side_effect = ApiException(status=404)
+    conn.core_v1.list_namespaced_pod.return_value = SimpleNamespace(items=[
+        SimpleNamespace(metadata=SimpleNamespace(name="broken-app-old-terminating", deletion_timestamp=datetime.now(timezone.utc))),
+        SimpleNamespace(metadata=SimpleNamespace(name="broken-app-new-live", deletion_timestamp=None)),
+    ])
+
+    result = conn.locate("prash-demo/broken-app")
+
+    assert result["name"] == "broken-app-new-live"
+
+
+def test_locate_returns_the_typed_name_when_nothing_matches_even_by_prefix():
+    """Deliberately preserves the old contract for a genuinely missing
+    resource -- downstream NOT_FOUND handling depends on locate() still
+    returning A name, not None, so poll_state can report NOT_FOUND rather
+    than crashing on a KeyError."""
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    conn.core_v1.read_namespaced_pod.side_effect = ApiException(status=404)
+    conn.core_v1.list_namespaced_pod.return_value = SimpleNamespace(items=[])
+
+    result = conn.locate("prash-demo/does-not-exist")
+
+    assert result == {"namespace": "prash-demo", "name": "does-not-exist"}
+
+
+def test_locate_skips_the_lookup_entirely_for_a_namespace_wide_wildcard():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+
+    result = conn.locate("prash-demo/*")
+
+    assert result == {"namespace": "prash-demo", "name": "*"}
+    conn.core_v1.read_namespaced_pod.assert_not_called()
+
+
+# -- KubernetesConnector.get_stats: the new class surface (Spec M1b). These
+# -- were shipped with zero coverage (PR #32); this pins the ConnectorEvent
+# -- (TypedDict) contract so the "sort by x['timestamp']" path can't regress
+# -- back to attribute access again.
+
+def _fake_event(reason, message, ts):
+    ev = MagicMock()
+    ev.last_timestamp = ts
+    ev.event_time = None
+    ev.reason = reason
+    ev.message = message
+    ev.to_dict.return_value = {"reason": reason, "message": message}
+    return ev
+
+
+def test_get_stats_returns_connectorevent_dicts_sorted_by_timestamp():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()  # bypass authenticate()
+
+    newer = datetime(2026, 9, 6, 12, 5, tzinfo=timezone.utc)
+    older = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    # returned out of order on purpose: the sort is where the bug was
+    conn.core_v1.list_namespaced_event.return_value = SimpleNamespace(
+        items=[_fake_event("BackOff", "restarting failed container", newer),
+               _fake_event("Failed", "container could not start", older)]
+    )
+
+    since = datetime(2026, 9, 6, 11, 0, tzinfo=timezone.utc)
+    events = conn.get_stats("prash-demo/broken-app", since=since)
+
+    assert len(events) == 2
+    # ConnectorEvent is a TypedDict -> plain dict access, never attributes
+    assert set(events[0].keys()) == {"timestamp", "connector", "event_type", "summary", "raw"}
+    assert all(e["connector"] == "kubernetes" for e in events)
+    assert events[0]["timestamp"] == older and events[1]["timestamp"] == newer  # sorted ascending
+    assert events[0]["event_type"] == "Failed"
+
+
+def test_get_stats_filters_events_before_since():
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    before = datetime(2026, 9, 6, 10, 0, tzinfo=timezone.utc)
+    after = datetime(2026, 9, 6, 12, 0, tzinfo=timezone.utc)
+    conn.core_v1.list_namespaced_event.return_value = SimpleNamespace(
+        items=[_fake_event("Old", "ancient", before), _fake_event("New", "recent", after)]
+    )
+    since = datetime(2026, 9, 6, 11, 0, tzinfo=timezone.utc)
+    events = conn.get_stats("prash-demo/broken-app", since=since)
+    assert len(events) == 1 and events[0]["event_type"] == "New"
+
+
+# -- KubernetesConnector.watch(): the other new class surface with zero
+# -- coverage (Notion: "Add test coverage for KubernetesConnector
+# -- (poll_state/watch/get_stats)"). watch() is a generator wrapping the k8s
+# -- watch API (kubernetes.watch.Watch().stream(...)); these mock that stream
+# -- the same way _patched_core_api mocks the plain client -- no real cluster.
+
+class _FakeWatchStream:
+    """Mimics kubernetes.watch.Watch(): .stream(fn, **kwargs) replays a
+    scripted list of watch events and records the kwargs it was called with."""
+
+    def __init__(self, events, captured_kwargs):
+        self._events = events
+        self._captured = captured_kwargs
+
+    def stream(self, fn, **kwargs):
+        self._captured.update(kwargs)
+        return iter(self._events)
+
+
+def _watchable_pod(name="broken-app-abc", namespace="prash-demo", **kw):
+    """A _pod() with a working to_dict() -- watch() puts the raw pod dict on
+    the yielded ConnectorEvent, which SimpleNamespace doesn't provide."""
+    pod = _pod(name=name, namespace=namespace, **kw)
+    pod.to_dict = lambda: {"metadata": {"name": name, "namespace": namespace}}
+    return pod
+
+
+def _patch_watch_stream(monkeypatch, events):
+    captured: dict = {}
+    monkeypatch.setattr(k8s, "watch", SimpleNamespace(Watch=lambda: _FakeWatchStream(events, captured)))
+    return captured
+
+
+@pytest.mark.parametrize("waiting_reason,expected_type", [
+    ("CrashLoopBackOff", "crashloopbackoff"),
+    ("ImagePullBackOff", "imagepullbackoff"),
+])
+def test_watch_yields_event_for_known_problem_states(monkeypatch, waiting_reason, expected_type):
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    pod = _watchable_pod(container_statuses=[
+        _container_status(ready=False, restart_count=5, waiting_reason=waiting_reason)
+    ])
+    _patch_watch_stream(monkeypatch, [{"object": pod}])
+
+    events = list(conn.watch("prash-demo/broken-app-abc"))
+
+    assert len(events) == 1
+    assert events[0]["connector"] == "kubernetes"
+    assert events[0]["event_type"] == expected_type
+    assert "broken-app-abc" in events[0]["summary"]
+    assert "restart_count=5" in events[0]["summary"]
+    assert events[0]["raw"] == {"metadata": {"name": "broken-app-abc", "namespace": "prash-demo"}}
+
+
+def test_watch_yields_event_for_oom_killed(monkeypatch):
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    pod = _watchable_pod(container_statuses=[
+        _container_status(ready=True, restart_count=2, last_terminated_reason="OOMKilled")
+    ])
+    _patch_watch_stream(monkeypatch, [{"object": pod}])
+
+    events = list(conn.watch("prash-demo/broken-app-abc"))
+
+    assert len(events) == 1
+    assert events[0]["event_type"] == "oomkilled"
+
+
+def test_watch_ignores_healthy_pod_updates(monkeypatch):
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    healthy = _watchable_pod(container_statuses=[_container_status(ready=True, restart_count=0)])
+    _patch_watch_stream(monkeypatch, [{"object": healthy}])
+
+    events = list(conn.watch("prash-demo/broken-app-abc"))
+
+    assert events == []
+
+
+def test_watch_scopes_to_named_pod_via_field_selector(monkeypatch):
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    captured = _patch_watch_stream(monkeypatch, [])
+
+    list(conn.watch("prash-demo/broken-app-abc"))
+
+    assert captured["namespace"] == "prash-demo"
+    assert captured["field_selector"] == "metadata.name=broken-app-abc"
+
+
+def test_watch_namespace_wide_when_no_pod_name(monkeypatch):
+    """target='namespace/*' (or bare namespace) watches every pod --
+    locate() maps a bare name to name='*' is not the contract here, but an
+    explicit wildcard must skip the field selector entirely."""
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    conn.core_v1 = MagicMock()
+    captured = _patch_watch_stream(monkeypatch, [])
+
+    list(conn.watch("prash-demo/*"))
+
+    assert captured["namespace"] == "prash-demo"
+    assert "field_selector" not in captured
+
+
+def test_watch_authenticates_when_not_already_connected(monkeypatch):
+    conn = k8s.KubernetesConnector({"KUBE_NAMESPACE": "prash-demo"})
+    assert conn.core_v1 is None
+    called = {"authenticate": False}
+
+    def _fake_authenticate():
+        called["authenticate"] = True
+        conn.core_v1 = MagicMock()
+        return True
+
+    monkeypatch.setattr(conn, "authenticate", _fake_authenticate)
+    _patch_watch_stream(monkeypatch, [])
+
+    list(conn.watch("prash-demo/broken-app-abc"))
+
+    assert called["authenticate"] is True
+
+
+def test_blank_kubeconfig_env_var_is_cleared_before_client_import():
+    """Found live 2026-09-16: prash/server.py's module-level
+    dotenv.load_dotenv(override=True) puts KUBECONFIG="" (the .env
+    template's blank default) into REAL os.environ before this connector
+    module is ever imported in the real app. The kubernetes-client library
+    reads os.environ["KUBECONFIG"] once, itself, at import time, and
+    caches "" as an explicit-but-invalid path rather than "unset" -- so
+    every authenticate() call for the rest of the process's life failed
+    with "Invalid kube-config file. No configuration found.", even though
+    `kubectl` worked fine against the same kubeconfig. A normal in-process
+    test can't reproduce this (the module is already imported once,
+    cleanly, by the time any test runs) -- this spawns a fresh interpreter
+    with the same blank env var docker/CI would actually set, matching
+    prash/connectors/kubernetes.py's import-time guard."""
+    import os
+    import subprocess
+    import sys
+
+    env = dict(os.environ)
+    env["KUBECONFIG"] = ""
+    result = subprocess.run(
+        [sys.executable, "-c", (
+            "import os\n"
+            "import prash.connectors.kubernetes\n"
+            "print(repr(os.environ.get('KUBECONFIG')))\n"
+        )],
+        env=env, capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "None"

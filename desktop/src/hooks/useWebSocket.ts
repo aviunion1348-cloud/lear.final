@@ -1,0 +1,122 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+
+export interface WebSocketEvent {
+  id?: string;
+  watch_id?: string;
+  connector?: string;
+  event_type: string;
+  summary: string;
+  severity?: string;
+  raw?: any;
+  timestamp: string;
+  [key: string]: any;
+}
+
+export type ConnectionStatus = 'connected' | 'connecting' | 'reconnecting' | 'disconnected';
+
+/**
+ * Resolve the events socket URL for the current runtime (fixed from the
+ * hardcoded ws://127.0.0.1:8000 — audit issue #6):
+ *   - page served over http(s)  → same-host relative path (Vite proxies /ws
+ *     to the FastAPI backend in dev; a reverse proxy fronts it in previews)
+ *   - Tauri production shell (tauri:// or file://) → local backend on 127.0.0.1
+ * Override with VITE_WS_URL when the socket lives somewhere else.
+ */
+export function resolveWebSocketUrl(): string {
+  const override = import.meta.env?.VITE_WS_URL as string | undefined;
+  if (override && override.length > 0) return override;
+  if (typeof window !== 'undefined' && /^https?:$/.test(window.location.protocol)) {
+    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    return `${proto}://${window.location.host}/ws/events`;
+  }
+  return 'ws://127.0.0.1:8000/ws/events';
+}
+
+export function useWebSocket(url: string = resolveWebSocketUrl()) {
+  const [isConnected, setIsConnected] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('connecting');
+  const [lastEvent, setLastEvent] = useState<WebSocketEvent | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<any>(null);
+  const retryCountRef = useRef(0);
+
+  const connect = useCallback(() => {
+    try {
+      if (wsRef.current && (wsRef.current.readyState === WebSocket.OPEN || wsRef.current.readyState === WebSocket.CONNECTING)) {
+        return;
+      }
+
+      setConnectionStatus(retryCountRef.current > 0 ? 'reconnecting' : 'connecting');
+      const ws = new WebSocket(url);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setIsConnected(true);
+        setConnectionStatus('connected');
+        retryCountRef.current = 0; // Reset exponential backoff on successful handshake
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(event.data);
+          if (parsed && parsed.events && Array.isArray(parsed.events)) {
+            parsed.events.forEach((ev: WebSocketEvent) => setLastEvent(ev));
+          } else if (parsed.event_type) {
+            setLastEvent(parsed);
+          }
+        } catch (e) {
+          console.error('Failed to parse WebSocket message:', e);
+        }
+      };
+
+      ws.onclose = () => {
+        setIsConnected(false);
+        setConnectionStatus('reconnecting');
+        // Exponential backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
+        const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+        retryCountRef.current += 1;
+        reconnectTimeoutRef.current = setTimeout(connect, delay);
+      };
+
+      ws.onerror = () => {
+        setIsConnected(false);
+        setConnectionStatus('disconnected');
+        try {
+          ws.close();
+        } catch {}
+      };
+    } catch (e) {
+      console.error('WebSocket connection error:', e);
+      setIsConnected(false);
+      setConnectionStatus('disconnected');
+      const delay = Math.min(1000 * Math.pow(2, retryCountRef.current), 30000);
+      retryCountRef.current += 1;
+      reconnectTimeoutRef.current = setTimeout(connect, delay);
+    }
+  }, [url]);
+
+  const sendMessage = useCallback((msg: any): boolean => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      try {
+        const payload = typeof msg === 'string' ? msg : JSON.stringify(msg);
+        wsRef.current.send(payload);
+        return true;
+      } catch (e) {
+        console.error('Failed to send WebSocket message:', e);
+      }
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
+      if (wsRef.current) wsRef.current.close();
+    };
+  }, [connect]);
+
+  return { isConnected, connectionStatus, lastEvent, sendMessage };
+}
+
+export default useWebSocket;

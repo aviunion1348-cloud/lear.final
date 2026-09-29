@@ -1,0 +1,293 @@
+/* =============================================================================
+   LEAR DESIGN TOKENS — U-01 "Design system audit and token overhaul"
+   -----------------------------------------------------------------------------
+   Single source of truth for the Lear desktop visual language.
+
+   v2 — PREMIUM GOLD ON OBSIDIAN BLACK.
+   The neon pink (#e8b44a) that used to carry the brand is demoted to a
+   *whisper accent* only (rare, <2% of surface area). Gold (#E8B44A anchor) is
+   now the primary brand ramp, paired with a warm-neutral obsidian surface ramp.
+
+   Layers:
+     1. @theme        → Tailwind v4 utility-namespace tokens (bg-*, text-*, …)
+     2. :root         → raw primitives consumed by hand-written CSS / canvas / JS
+     3. Semantic maps → connector-state → color, so status is never hard-coded
+
+   Scales defined here (do not bypass with magic values in components):
+     spacing | typography | color | elevation | radius | motion | blur | z-index
+   ========================================================================== */
+
+@theme {
+  /* ---- Typography families (Inter UI / Outfit display / JetBrains Mono code) */
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Outfit", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  /* ---- Core surface ramp — obsidian black, faintly warm so gold sits in it -- */
+  --color-background: #05050a;
+  --color-surface: #0b0b11;
+  --color-surface-elevated: #14141c;
+  --color-surface-raised: #1c1c26;
+  --color-border-subtle: rgba(232, 180, 74, 0.10);
+  --color-border-hover: rgba(232, 180, 74, 0.26);
+  --color-border-strong: rgba(232, 180, 74, 0.42);
+
+  /* ---- BRAND: gold ramp anchored on #E8B44A ------------------------------- */
+  --color-gold-50: #fffaf0;
+  --color-gold-100: #fdf0d5;
+  --color-gold-200: #f8e0aa;
+  --color-gold-300: #f2cd7c;
+  --color-gold-400: #edc063;
+  --color-gold-500: #e8b44a;
+  --color-gold-600: #d29a2e;
+  --color-gold-700: #a97722;
+  --color-gold-800: #7d561a;
+  --color-gold-900: #513711;
+  --color-gold-950: #2b1d08;
+
+  /* Primary aliases — components should use these, not raw ramp steps */
+  --color-accent: #e8b44a;
+  --color-accent-light: #f2cd7c;
+  --color-accent-dark: #a97722;
+  --color-accent-glow: rgba(232, 180, 74, 0.28);
+
+  /* Champagne / platinum companions for depth inside the gold family */
+  --color-champagne: #f7e7c3;
+  --color-bronze: #9c6b3c;
+  --color-brass: #c9a227;
+  --color-platinum: #d8dce3;
+
+  /* ---- Whisper accent: the old neon pink, now RARE ------------------------ */
+  --color-whisper: #ff3a89;
+  --color-whisper-soft: rgba(255, 58, 137, 0.10);
+  --color-brand-500: #e8b44a;          /* back-compat alias → now gold */
+  --color-brand-600: #d29a2e;
+
+  /* ---- Secondary signals (kept for data-viz separation only) -------------- */
+  --color-violet-300: #c4b5fd;
+  --color-violet-400: #a78bfa;
+  --color-violet-500: #8b5cf6;
+  --color-cyan-300: #67e8f9;
+  --color-cyan-400: #22d3ee;
+  --color-cyan-500: #06b6d4;
+
+  /* ---- Neutral scale (warm-tinted charcoal, reads luxurious under gold) ---- */
+  --color-neutral-0: #ffffff;
+  --color-neutral-50: #f7f6f3;
+  --color-neutral-100: #ebe9e4;
+  --color-neutral-200: #d5d2c9;
+  --color-neutral-300: #b3afa3;
+  --color-neutral-400: #8b877b;
+  --color-neutral-500: #6b675d;
+  --color-neutral-600: #504d45;
+  --color-neutral-700: #3a3832;
+  --color-neutral-800: #26241f;
+  --color-neutral-900: #16150f;
+  --color-neutral-950: #0a0a07;
+
+  /* ---- Semantic / status (drives ALL state color — never hard-code) -------- */
+  --color-success: #3fbf7f;
+  --color-success-soft: rgba(63, 191, 127, 0.12);
+  --color-warning: #e8b44a;
+  --color-warning-soft: rgba(232, 180, 74, 0.14);
+  --color-danger: #e5484d;
+  --color-danger-soft: rgba(229, 72, 77, 0.12);
+  --color-info: #6fa8dc;
+  --color-info-soft: rgba(111, 168, 220, 0.12);
+  --color-amber: #e8b44a;
+  --color-rose: #e5484d;
+
+  /* ---- Elevation / shadow system (deeper blacks + gold bloom) -------------- */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.55);
+  --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.65);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.7);
+  --shadow-xl: 0 24px 64px rgba(0, 0, 0, 0.75);
+  --shadow-2xl: 0 32px 96px rgba(0, 0, 0, 0.8);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.6);
+  --shadow-glow-gold: 0 0 24px rgba(232, 180, 74, 0.38), 0 0 64px rgba(232, 180, 74, 0.14);
+  --shadow-glow-gold-lg: 0 0 48px rgba(232, 180, 74, 0.45), 0 0 140px rgba(232, 180, 74, 0.18);
+  --shadow-glow-brand: 0 0 24px rgba(232, 180, 74, 0.38), 0 0 64px rgba(232, 180, 74, 0.14);
+  --shadow-glow-cyan: 0 0 24px rgba(34, 211, 238, 0.28), 0 0 64px rgba(34, 211, 238, 0.1);
+  --shadow-glow-violet: 0 0 24px rgba(139, 92, 246, 0.28), 0 0 64px rgba(139, 92, 246, 0.1);
+  --shadow-glow-danger: 0 0 24px rgba(229, 72, 77, 0.32), 0 0 64px rgba(229, 72, 77, 0.12);
+  --shadow-glow-success: 0 0 24px rgba(63, 191, 127, 0.3), 0 0 64px rgba(63, 191, 127, 0.1);
+  --shadow-inner-hairline: inset 0 1px 0 rgba(232, 180, 74, 0.12);
+  --shadow-bevel-gold: inset 0 1px 0 rgba(247, 231, 195, 0.35), inset 0 -1px 0 rgba(0, 0, 0, 0.6);
+
+  /* ---- Border-radius scale ------------------------------------------------- */
+  --radius-none: 0px;
+  --radius-xs: 6px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-3xl: 32px;
+  --radius-4xl: 44px;
+  --radius-full: 9999px;
+
+  /* ---- Animation tokens exposed as `animate-*` utilities ------------------- */
+  --animate-fade-in: fade-in 0.24s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-rise: rise 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-zoom-in: zoom-in 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-pulse-glow: pulse-glow 2.4s ease-in-out infinite;
+  --animate-float: float 7s ease-in-out infinite;
+  --animate-shimmer: shimmer 1.8s linear infinite;
+  --animate-spin-slow: spin 14s linear infinite;
+  --animate-ping-slow: ping-ring 2.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+  --animate-gradient-pan: gradient-pan 9s ease infinite;
+  --animate-scanline: scanline 7s linear infinite;
+  --animate-marquee: marquee 28s linear infinite;
+  --animate-blink: blink 1.2s steps(2, start) infinite;
+  --animate-gold-sweep: gold-sweep 2.8s var(--ease-swift) infinite;
+  --animate-ingot-shine: ingot-shine 3.6s ease-in-out infinite;
+}
+
+/* =============================================================================
+   RAW PRIMITIVES — consumed by custom CSS, canvas renderers, inline styles
+   ========================================================================== */
+:root {
+  /* Brand anchors (JS-readable) */
+  --lear-brand: #e8b44a;
+  --lear-brand-rgb: 232, 180, 74;
+  --lear-gold-rgb: 232, 180, 74;
+  --lear-gold-light-rgb: 242, 205, 124;
+  --lear-champagne-rgb: 247, 231, 195;
+  --lear-bronze-rgb: 156, 107, 60;
+  --lear-whisper-rgb: 255, 58, 137;
+  --lear-violet-rgb: 139, 92, 246;
+  --lear-cyan-rgb: 34, 211, 238;
+  --lear-success-rgb: 63, 191, 127;
+  --lear-warning-rgb: 232, 180, 74;
+  --lear-danger-rgb: 229, 72, 77;
+
+  /* Spacing scale — 4px base, 1:4 geometric feel at the top end */
+  --space-0: 0;
+  --space-px: 1px;
+  --space-0-5: 2px;
+  --space-1: 4px;
+  --space-1-5: 6px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-7: 28px;
+  --space-8: 32px;
+  --space-9: 36px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-14: 56px;
+  --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-28: 112px;
+  --space-32: 128px;
+  --space-40: 160px;
+  --space-48: 192px;
+
+  /* Typography scale (px) — modular 1.2 minor-third at the display end */
+  --text-3xs: 9px;
+  --text-2xs: 11px;
+  --text-xs: 12px;
+  --text-sm: 14px;
+  --text-md: 16px;
+  --text-lg: 18px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+  --text-3xl: 30px;
+  --text-4xl: 36px;
+  --text-5xl: 48px;
+  --text-6xl: 60px;
+  --text-7xl: 76px;
+  --text-8xl: 96px;
+  --text-9xl: 124px;
+  --text-hero: clamp(64px, 13vw, 180px);
+
+  /* Line-height + tracking pairs */
+  --leading-tight: 1.1;
+  --leading-snug: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.7;
+  --tracking-tighter: -0.04em;
+  --tracking-tight: -0.02em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-wider: 0.12em;
+  --tracking-widest: 0.28em;
+
+  /* Font weights */
+  --weight-light: 300;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+  --weight-black: 900;
+
+  /* Motion scale */
+  --dur-instant: 70ms;
+  --dur-fast: 140ms;
+  --dur-normal: 240ms;
+  --dur-slow: 480ms;
+  --dur-slower: 720ms;
+  --dur-cinematic: 1100ms;
+  --dur-epic: 2200ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-decelerate: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-accelerate: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-spring-soft: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --ease-swift: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-anticipate: cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  --ease-linear: linear;
+
+  /* Blur + glass */
+  --blur-xs: 4px;
+  --blur-sm: 8px;
+  --blur-glass: 16px;
+  --blur-heavy: 28px;
+  --blur-max: 48px;
+
+  /* Z-index scale (app chrome) */
+  --z-background: -10;
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sticky: 30;
+  --z-overlay: 40;
+  --z-drawer: 50;
+  --z-modal: 60;
+  --z-toast: 70;
+  --z-tooltip: 80;
+  --z-sequence: 200;
+  --z-hud: 300;
+
+  /* Signature gradients — gold first */
+  --gradient-gold: linear-gradient(135deg, #f7e7c3 0%, #e8b44a 42%, #a97722 100%);
+  --gradient-gold-bright: linear-gradient(120deg, #fffaf0 0%, #f2cd7c 30%, #e8b44a 60%, #c9a227 100%);
+  --gradient-gold-sheen: linear-gradient(100deg, transparent 20%, rgba(247, 231, 195, 0.55) 48%, transparent 76%);
+  --gradient-brand: linear-gradient(135deg, #f7e7c3 0%, #e8b44a 45%, #a97722 100%);
+  --gradient-brand-soft: linear-gradient(135deg, rgba(232, 180, 74, 0.2), rgba(169, 119, 34, 0.1) 60%, rgba(0, 0, 0, 0));
+  --gradient-aurora: radial-gradient(120% 120% at 20% 0%, rgba(232, 180, 74, 0.16) 0%, rgba(169, 119, 34, 0.08) 40%, rgba(5, 5, 10, 0) 70%);
+  --gradient-obsidian: linear-gradient(180deg, #0b0b11 0%, #05050a 100%);
+  --gradient-danger: linear-gradient(135deg, rgba(229, 72, 77, 0.2), rgba(229, 72, 77, 0.06));
+  --gradient-vignette: radial-gradient(130% 100% at 50% 45%, transparent 38%, rgba(0, 0, 0, 0.72) 100%);
+
+  /* Video backdrop grade — user asked for HIGH brightness plates */
+  --video-brightness: 1.28;
+  --video-contrast: 1.12;
+  --video-saturate: 1.18;
+}
+
+/* =============================================================================
+   SEMANTIC STATUS MAP — one place to rule connector/watcher/project states
+   ========================================================================== */
+:root {
+  --status-healthy: var(--color-success);
+  --status-degraded: var(--color-warning);
+  --status-error: var(--color-danger);
+  --status-deploying: var(--color-info);
+  --status-unknown: #6b675d;
+}

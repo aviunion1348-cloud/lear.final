@@ -1,0 +1,371 @@
+"""Track D days 4-5: the schema extension for Kubernetes/runtime failures.
+
+See prash/brain/schemas.py's module docstring for why this was added
+(v1's Diagnosis had no way to express "a running service is unhealthy") and
+PRASH_V2.md §9 for why the minimal option (one category + one field) was
+chosen over redesigning fix_type.
+"""
+from __future__ import annotations
+
+import pytest
+from pydantic import ValidationError
+
+from prash.brain.schemas import Diagnosis, DiagnosisOption, FileChange, FileEdit
+
+
+def _base(**overrides) -> dict:
+    base = {
+        "problem_summary": "Pod api-7f9d is crash-looping in namespace production",
+        "root_cause": "Container exits immediately on startup because a required config file is missing from the image, causing repeated CrashLoopBackOff restarts.",
+        "fix_description": "Restart the pod to clear the current crash state; the underlying image issue still needs a rebuild.",
+        "fix_type": "manual_required",
+        "confidence": 0.7,
+        "category": "runtime",
+        "files_changed": [],
+    }
+    base.update(overrides)
+    return base
+
+
+def test_runtime_category_accepted():
+    d = Diagnosis(**_base())
+    assert d.category == "runtime"
+
+
+def test_recommended_action_accepts_known_actions():
+    d = Diagnosis(**_base(recommended_action="restart_pod"))
+    assert d.recommended_action == "restart_pod"
+
+
+def test_recommended_action_accepts_silence_alert():
+    """Regression: the Grafana prompt (diagnosis_agent.py) instructs the model
+    to emit recommended_action='silence_alert' as the paging stopgap for a
+    firing alert rule, and fix.py's _AUTO_ACTIONS maps it to
+    grafana-silence-alert -- but the Literal here originally omitted it, so
+    the intended common case raised ValidationError and crashed the whole
+    diagnosis. It must be an accepted value."""
+    d = Diagnosis(**_base(recommended_action="silence_alert", category="monitoring"))
+    assert d.recommended_action == "silence_alert"
+
+
+def test_recommended_action_defaults_to_none():
+    d = Diagnosis(**_base())
+    assert d.recommended_action is None
+
+
+def test_recommended_action_rejects_unknown_value():
+    with pytest.raises(ValidationError):
+        Diagnosis(**_base(recommended_action="delete_everything"))
+
+
+def test_recommended_action_normalizes_string_null_to_none():
+    """Real bug caught by the eval harness (2026-08-09, Track D days 6-8):
+    models routinely emit the literal string "null" in tool-call JSON
+    instead of an actual JSON null, which Pydantic rejects outright since
+    it isn't one of the three literal action values. Hit via both Kimi and
+    DeepSeek, and it broke unrelated CI cases too, not just runtime ones."""
+    for raw in ("null", "NULL", "none", "None", ""):
+        d = Diagnosis(**_base(recommended_action=raw))
+        assert d.recommended_action is None, f"{raw!r} did not normalize to None"
+
+
+def test_category_aliases_map_onto_runtime():
+    """k8s/kubernetes/infra/pod are common model-output variants that should
+    still land on the one real category, matching the existing alias pattern
+    for env/ci/etc."""
+    for alias in ("k8s", "kubernetes", "infra", "pod"):
+        d = Diagnosis(**_base(category=alias))
+        assert d.category == "runtime", f"alias {alias!r} did not normalize to runtime"
+
+
+def test_runtime_with_no_files_stays_manual_required():
+    """No files_changed for a runtime diagnosis is the normal case (the fix
+    is an action, not a diff) -- coerce_fix_type must not fight that."""
+    d = Diagnosis(**_base(fix_type="review_recommended", files_changed=[]))
+    assert d.fix_type == "manual_required"
+
+
+def test_existing_categories_still_work_unchanged():
+    """Non-regression: the pre-existing categories/fix_type matrix from v1
+    must behave identically after the extension."""
+    d = Diagnosis(**_base(
+        category="dependency",
+        fix_type="safe_auto_apply",
+        files_changed=[{"path": "requirements.txt", "new_content": "requests==2.31.0\n", "explanation": "pin requests"}],
+    ))
+    assert d.category == "dependency"
+    assert d.fix_type == "safe_auto_apply"
+
+
+# ── options: the "ask, don't quit" ranked menu (PRASH_V2.md §9, 2026-08-15) ─
+
+def test_options_defaults_to_none():
+    d = Diagnosis(**_base())
+    assert d.options is None
+
+
+def test_options_accepted_with_two_entries_and_one_default():
+    d = Diagnosis(**_base(options=[
+        DiagnosisOption(action="restart_pod", rationale="Empty logs, no clear scheduling failure — plausibly just wedged.", is_default=True),
+        DiagnosisOption(action=None, rationale="Could also be a genuinely slow first-time image pull; restarting risks losing that progress.", is_default=False),
+    ]))
+    assert len(d.options) == 2
+    assert d.options[0].is_default is True
+
+
+def test_options_rejects_a_single_entry():
+    """A 1-option 'menu' isn't a menu -- that's just recommended_action.
+    Forcing this at the schema level backs up the prompt instruction not to
+    use options as a way to avoid committing to a confident single call."""
+    with pytest.raises(ValidationError, match="at least 2 entries"):
+        Diagnosis(**_base(options=[
+            DiagnosisOption(action="restart_pod", rationale="Only one candidate here, which defeats the point of a menu.", is_default=True),
+        ]))
+
+
+def test_options_rejects_zero_or_multiple_defaults():
+    with pytest.raises(ValidationError, match="exactly one option must be marked is_default"):
+        Diagnosis(**_base(options=[
+            DiagnosisOption(action="restart_pod", rationale="First candidate action with no default marked at all.", is_default=False),
+            DiagnosisOption(action="rollback", rationale="Second candidate action, also not marked as the default pick.", is_default=False),
+        ]))
+    with pytest.raises(ValidationError, match="exactly one option must be marked is_default"):
+        Diagnosis(**_base(options=[
+            DiagnosisOption(action="restart_pod", rationale="First candidate action, marked as a default pick here.", is_default=True),
+            DiagnosisOption(action="rollback", rationale="Second candidate action, also marked default by mistake.", is_default=True),
+        ]))
+
+
+def test_options_auto_derives_recommended_action_from_the_default_pick():
+    """Backward compatibility: every existing call site (the whole CLI and
+    dispatcher today) reads recommended_action alone, until Track A's
+    rendering+dispatch side of the options flow lands. A model that only
+    fills in `options` must not go silently quiet for those call sites --
+    recommended_action is derived from whichever option is marked default."""
+    d = Diagnosis(**_base(options=[
+        DiagnosisOption(action="rollback", rationale="The last deploy introduced this and rolling back is the safer of the two plausible calls.", is_default=True),
+        DiagnosisOption(action="restart_pod", rationale="Could also just be a transient wedge, but less likely given the deploy timing.", is_default=False),
+    ]))
+    assert d.recommended_action == "rollback"
+
+
+def test_options_does_not_override_an_explicitly_set_recommended_action():
+    """If a model (incorrectly, against prompt instructions) fills in both
+    fields, the explicit recommended_action wins rather than being
+    silently overwritten by the derived value -- least surprise."""
+    d = Diagnosis(**_base(
+        recommended_action="restart_pod",
+        options=[
+            DiagnosisOption(action="rollback", rationale="This option's action differs from the explicitly set recommended_action above.", is_default=True),
+            DiagnosisOption(action="restart_pod", rationale="This is the second of two options, deliberately not marked default here.", is_default=False),
+        ],
+    ))
+    assert d.recommended_action == "restart_pod"
+
+
+def test_options_normalizes_string_null_and_empty_list_to_none():
+    """Same cross-model quirk as recommended_action's own normalization
+    test above, plus the empty-array case for this field specifically."""
+    for raw in ("null", "NULL", "none", "", []):
+        d = Diagnosis(**_base(options=raw))
+        assert d.options is None, f"{raw!r} did not normalize to None"
+
+
+# ── FileChange.apply(): edits vs new_content (PRASH_V2.md §9, 2026-08-17) ───
+# Added after live stress-testing found whole-file regeneration silently drops
+# content the model doesn't fully attend to (two real PRs each had the
+# correct fix plus unrelated deleted comment lines). edits apply as exact,
+# unique search/replace against the file's real current content instead.
+
+def test_file_change_requires_edits_or_new_content():
+    with pytest.raises(ValidationError, match="edits.*or.*new_content"):
+        FileChange(path="x.py", explanation="nothing to do")
+
+
+def test_file_change_rejects_both_edits_and_new_content():
+    with pytest.raises(ValidationError, match="not both"):
+        FileChange(
+            path="x.py",
+            explanation="ambiguous",
+            new_content="a = 1\n",
+            edits=[FileEdit(old_content="a", new_content="b")],
+        )
+
+
+def test_file_change_new_content_ignores_original():
+    fc = FileChange(path="x.py", new_content="a = 2\n", explanation="new file")
+    assert fc.apply("a = 1\n") == "a = 2\n"
+    assert fc.apply(None) == "a = 2\n"
+
+
+def test_file_change_edits_apply_only_the_matched_span():
+    fc = FileChange(
+        path="k8s/app.yaml",
+        edits=[FileEdit(old_content="image: v1", new_content="image: v2")],
+        explanation="bump image",
+    )
+    original = "spec:\n  # keep this comment\n  image: v1\n  replicas: 1\n"
+    assert fc.apply(original) == "spec:\n  # keep this comment\n  image: v2\n  replicas: 1\n"
+
+
+def test_file_change_edits_apply_in_sequence():
+    fc = FileChange(
+        path="pkg.json",
+        edits=[
+            FileEdit(old_content='"react": "^17"', new_content='"react": "^18"'),
+            FileEdit(old_content='"react-dom": "^17"', new_content='"react-dom": "^18"'),
+        ],
+        explanation="bump both together",
+    )
+    original = '{"react": "^17", "react-dom": "^17"}'
+    assert fc.apply(original) == '{"react": "^18", "react-dom": "^18"}'
+
+
+def test_file_change_edit_raises_when_old_content_missing():
+    fc = FileChange(path="x.py", edits=[FileEdit(old_content="not_here", new_content="x")], explanation="?")
+    with pytest.raises(ValueError, match="did not apply.*not found"):
+        fc.apply("a = 1\n")
+
+
+def test_file_change_edit_raises_when_old_content_not_unique():
+    fc = FileChange(path="x.py", edits=[FileEdit(old_content="PORT = 8080", new_content="PORT = 9090")], explanation="?")
+    with pytest.raises(ValueError, match="matches 2 times"):
+        fc.apply("PORT = 8080\nOTHER = 1\nPORT = 8080\n")
+
+
+def test_file_edit_rejects_empty_old_content():
+    with pytest.raises(ValidationError):
+        FileEdit(old_content="", new_content="x")
+
+
+# ── FileChange.apply(): whitespace-tolerant fallback (2026-09-07) ────────────
+# A live CI-fix apply failed because the model's old_content was the right
+# block of a deeply-indented file but its leading whitespace didn't match
+# byte-for-byte. These cover the fallback that rescues that WITHOUT letting an
+# ambiguous or unsafe match through.
+
+
+def test_fallback_tolerates_trailing_whitespace():
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="x = 1\ny = 2", new_content="x = 1\ny = 3")],
+        explanation="?",
+    )
+    # The real file has trailing whitespace the model didn't reproduce.
+    original = "x = 1   \ny = 2\t\nz = 4\n"
+    assert fc.apply(original) == "x = 1\ny = 3\nz = 4\n"
+
+
+def test_fallback_tolerates_crlf_and_preserves_surrounding_crlf():
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="a = 1\nb = 2", new_content="a = 1\nb = 9")],
+        explanation="?",
+    )
+    original = "a = 1\r\nb = 2\r\nc = 3\r\n"
+    # The replacement adopts the block's CRLF, so no lone-LF hunk is introduced.
+    assert fc.apply(original) == "a = 1\r\nb = 9\r\nc = 3\r\n"
+
+
+def test_fallback_tolerates_uniform_under_indentation_and_reindents():
+    # The model dedented the block by 4 spaces; the real file is nested deeper.
+    fc = FileChange(
+        path="prash/tui.py",
+        edits=[
+            FileEdit(
+                old_content='table = self.query_one("#connectors-table", DataTable)\ntable.clear()',
+                new_content=(
+                    'try:\n'
+                    '    table = self.query_one("#connectors-table", DataTable)\n'
+                    'except NoMatches:\n'
+                    '    return\n'
+                    'table.clear()'
+                ),
+            )
+        ],
+        explanation="guard the query",
+    )
+    original = (
+        "    def _on(self):\n"
+        '        table = self.query_one("#connectors-table", DataTable)\n'
+        "        table.clear()\n"
+        "        return\n"
+    )
+    result = fc.apply(original)
+    # The replacement is reindented by the same 8-space shift the block had.
+    assert result == (
+        "    def _on(self):\n"
+        "        try:\n"
+        '            table = self.query_one("#connectors-table", DataTable)\n'
+        "        except NoMatches:\n"
+        "            return\n"
+        "        table.clear()\n"
+        "        return\n"
+    )
+
+
+def test_fallback_tolerates_uniform_over_indentation():
+    # The model over-indented the block by 4 spaces; the file is shallower.
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="    a = 1\n    b = 2", new_content="    a = 1\n    b = 5")],
+        explanation="?",
+    )
+    original = "a = 1\nb = 2\n"
+    assert fc.apply(original) == "a = 1\nb = 5\n"
+
+
+def test_fallback_refuses_ambiguous_stripped_match():
+    # Tab-indented old_content misses the space-indented file on exact match,
+    # then matches two windows once whitespace is ignored — refuse, don't guess.
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="\tdo_it()", new_content="do_it(v2)")],
+        explanation="?",
+    )
+    original = "    do_it()\n        do_it()\n"
+    with pytest.raises(ValueError, match="did not apply.*not found"):
+        fc.apply(original)
+
+
+def test_fallback_refuses_non_uniform_indent_shift():
+    # Line 1 shifted by 4 spaces, line 2 by 8 — not a uniform shift, refuse.
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="a = 1\nb = 2", new_content="a = 1\nb = 9")],
+        explanation="?",
+    )
+    original = "    a = 1\n        b = 2\n"
+    with pytest.raises(ValueError, match="did not apply.*not found"):
+        fc.apply(original)
+
+
+def test_fallback_does_not_fire_when_exact_match_exists():
+    # Exact match present AND a fuzzy window exists elsewhere; exact wins and
+    # the fuzzy candidate is left untouched (no double-apply, no ambiguity).
+    fc = FileChange(
+        path="x.py",
+        edits=[FileEdit(old_content="        z = 0", new_content="        z = 1")],
+        explanation="?",
+    )
+    original = "z = 0\n        z = 0\n"
+    # Exact "        z = 0" appears once (the indented line); it alone changes.
+    assert fc.apply(original) == "z = 0\n        z = 1\n"
+
+
+def test_fallback_still_raises_when_truly_absent():
+    fc = FileChange(path="x.py", edits=[FileEdit(old_content="not_here_at_all", new_content="x")], explanation="?")
+    with pytest.raises(ValueError, match="did not apply.*not found"):
+        fc.apply("a = 1\nb = 2\n")
+
+
+def test_options_action_can_be_null_for_escalate_to_human():
+    """One of the ranked choices being 'no automated action, a human should
+    look at this' is a legitimate, honest option in the menu, not just a
+    fallback for when the menu doesn't apply."""
+    d = Diagnosis(**_base(options=[
+        DiagnosisOption(action=None, rationale="The evidence doesn't clearly support either automated action being safe to try here.", is_default=True),
+        DiagnosisOption(action="restart_pod", rationale="A less-favored but still plausible second candidate, if a human wants to take the risk.", is_default=False),
+    ]))
+    assert d.options[0].action is None
+    assert d.recommended_action is None

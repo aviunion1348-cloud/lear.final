@@ -1,0 +1,16 @@
+{
+  "name": "lear-backend-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -k -n BACKEND,FRONTEND -c magenta,cyan \"npm run dev:server\" \"npm run dev:desktop\"",
+    "dev": "npm start",
+    "dev:desktop": "npm --prefix desktop run dev",
+    "dev:server": "python -m uvicorn prash.server:app --host 127.0.0.1 --port 8000 --log-level info",
+    "build": "npm --prefix desktop run build",
+    "test": "npm --prefix desktop run test"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}

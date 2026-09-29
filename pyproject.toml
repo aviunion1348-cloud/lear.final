@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prash-v2"
+version = "0.2.0"
+description = "Lear - local-first AI DevOps agent"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.0",
+    "kubernetes>=29.0",
+    "pydantic>=2.0",
+    "httpx>=0.27",
+    "openai>=1.0",
+    "plyer>=2.1",
+    "textual>=8.0",
+    # plyer's macOS notification backend needs pyobjus (a PyObjC-style bridge)
+    # that isn't pulled in automatically -- without it, notify() raises and
+    # _notify() falls back to console-only, which is silent-but-safe, not a
+    # crash, but it means real desktop notifications never actually fire on
+    # macOS. Found live, verifying the watcher against the actual cluster.
+    "pyobjus>=1.2.3; sys_platform == 'darwin'",
+    "boto3>=1.34",
+    # GCP connector (prash/connectors/gcp.py) imports these at module level
+    # inside a try/except -- never declared anywhere, so authenticate() always
+    # failed with "GCP SDK is required" on a clean install. Found live testing
+    # real GCP credentials, 2026-09-16.
+    "google-auth>=2.0",
+    "google-api-python-client>=2.0",
+    "fastapi>=0.100.0",
+    "uvicorn>=0.20.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+# The desktop app's local backend (prash/server.py + prash/connector_registry.py)
+# is the only code that needs these -- the core `prash` CLI never imports either
+# module, so they stay an opt-in extra rather than weight every CLI install.
+# uvicorn[standard] pulls the websockets stack that /ws/events needs at runtime.
+[project.optional-dependencies]
+desktop = [
+    "fastapi>=0.110",
+    "python-dotenv>=1.0",
+    "uvicorn[standard]>=0.27",
+    # /api/chat/upload in prash/server.py accepts multipart form data; FastAPI
+    # raises at import time without this (found on a clean git-clone install).
+    "python-multipart>=0.0.9",
+]
+# dev pulls desktop because the test suite imports the desktop-server modules at
+# collection time (tests/test_desktop_api.py, test_connector_registry.py,
+# test_widget_generation.py) -- so `pip install -e ".[dev]"`, which CI already
+# runs, is enough to collect and run them with no extra CI step.
+dev = [
+    "pytest>=7.0",
+    "prash-v2[desktop]",
+]
+
+[project.scripts]
+prash = "prash.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["prash*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Without this, CI (which invokes the bare `pytest` binary, not `python -m
+# pytest`) never puts the repo root on sys.path, so tests/test_eval_env_loading.py
+# importing the sibling `evals` package fails with ModuleNotFoundError even
+# though it works locally (python -m pytest adds the cwd automatically).
+pythonpath = ["."]
