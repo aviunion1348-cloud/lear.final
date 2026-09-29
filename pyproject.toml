@@ -51,6 +51,11 @@ desktop = [
 # collection time (tests/test_desktop_api.py, test_connector_registry.py,
 # test_widget_generation.py) -- so `pip install -e ".[dev]"`, which CI already
 # runs, is enough to collect and run them with no extra CI step.
+# Only scripts/gen_compliance_pdf.py needs this; keeping it out of the default
+# install means a normal user never pays for a PDF toolchain they will not use.
+docs = [
+    "reportlab>=4.0",
+]
 dev = [
     "pytest>=7.0",
     "prash-v2[desktop]",

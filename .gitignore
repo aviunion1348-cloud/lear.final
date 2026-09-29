@@ -54,3 +54,6 @@ prash.yaml
 # Lock files (uv)
 uv.lock
 
+
+# superseded archive name - must never be tracked or packaged again
+leardevop.zip
