@@ -1,0 +1,44 @@
+/* =============================================================================
+   POINTER SPOTLIGHT — the gold key-light that follows the cursor
+   Decoration only: pointer-events:none, aria-hidden, never intercepts input.
+   ========================================================================== */
+
+.pointer-spotlight {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 46rem;
+  height: 46rem;
+  z-index: 1; /* above the backdrop, far below dialogs and toasts */
+  pointer-events: none;
+  border-radius: 50%;
+  opacity: 0;
+  transition: opacity 420ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+  background: radial-gradient(
+    circle closest-side,
+    rgba(232, 180, 74, 0.1) 0%,
+    rgba(232, 180, 74, 0.055) 34%,
+    rgba(201, 162, 39, 0.022) 58%,
+    transparent 76%
+  );
+  mix-blend-mode: screen;
+  filter: blur(6px);
+  contain: strict;
+}
+
+.pointer-spotlight[data-live='1'] {
+  opacity: 1;
+}
+
+/* Never let decoration cost a frame on machines that opt out. */
+@media (prefers-reduced-motion: reduce) {
+  .pointer-spotlight {
+    display: none;
+  }
+}
+
+@media (pointer: coarse) {
+  .pointer-spotlight {
+    display: none;
+  }
+}

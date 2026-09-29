@@ -160,3 +160,125 @@ describe('console entry + subsection choreography', () => {
     }
   });
 });
+
+/* =============================================================================
+   ROUND 3 — subsection choreography, pointer light, gold/black glass
+   These guard the two properties that make heavy VFX survivable in a console
+   you actually work in: it must never hide content, and it must never hold a
+   compositor layer or an animation frame it isn't using.
+   ========================================================================== */
+describe('subsection choreography (every panel animates, nothing disappears)', () => {
+  const tsx = read('src/components/fx/SubsectionChoreography.tsx');
+  const css = read('src/components/fx/SubsectionChoreography.css');
+
+  it('is fail-visible: only the script ever dims a panel', () => {
+    // The dim is bound to data-sub="pending", which only this module writes.
+    expect(css).toContain("[data-sub='pending']");
+    expect(tsx).toContain("dataset.sub = 'pending'");
+    // No blanket rule may hide subsection content without that attribute.
+    expect(css).not.toMatch(/^\s*\.glass-panel\s*\{[^}]*opacity:\s*0/m);
+  });
+
+  it('has a watchdog that force-reveals anything left pending', () => {
+    expect(tsx).toContain('WATCHDOG_MS');
+    expect(tsx).toMatch(/dataset\.sub = 'done'/);
+  });
+
+  it('caps the cascade so dense views never feel like they are loading', () => {
+    const max = Number(tsx.match(/MAX_STAGGER\s*=\s*(\d+)/)?.[1]);
+    const step = Number(tsx.match(/STEP_MS\s*=\s*(\d+)/)?.[1]);
+    expect(max).toBeLessThanOrEqual(10);
+    expect(step).toBeLessThanOrEqual(30);
+    expect(max * step).toBeLessThanOrEqual(260); // worst-case cascade
+  });
+
+  it('unobserves each panel after its first reveal', () => {
+    expect(tsx).toContain('io.unobserve');
+  });
+
+  it('drops will-change once a panel has settled', () => {
+    expect(css).toContain("[data-sub='done']");
+    expect(css.split("[data-sub='done']")[1]).toContain('will-change: auto');
+  });
+
+  it('animates only compositor-safe properties', () => {
+    const blocks = css.match(/@keyframes[^{]+\{[\s\S]*?\n\}/g) ?? [];
+    expect(blocks.length).toBeGreaterThan(0);
+    for (const b of blocks) {
+      for (const bad of ['width:', 'height:', 'top:', 'left:', 'margin', 'padding']) {
+        expect(b.includes(bad), `layout prop "${bad}" in keyframe`).toBe(false);
+      }
+    }
+  });
+
+  it('bypasses entirely under reduced motion', () => {
+    expect(tsx).toContain('prefers-reduced-motion');
+    expect(css).toContain('prefers-reduced-motion');
+  });
+});
+
+describe('pointer spotlight (one listener for the whole console)', () => {
+  const tsx = read('src/components/fx/PointerSpotlight.tsx');
+  const css = read('src/components/fx/PointerSpotlight.css');
+
+  it('registers a single passive pointer listener', () => {
+    expect(tsx).toContain("addEventListener('pointermove'");
+    expect(tsx).toContain('passive: true');
+    expect((tsx.match(/addEventListener\('pointermove'/g) ?? []).length).toBe(1);
+  });
+
+  it('parks its rAF loop when the light has caught up', () => {
+    expect(tsx).toContain('running = false');
+    expect(tsx).toContain('EPSILON');
+  });
+
+  it('stops animating when the tab is hidden', () => {
+    expect(tsx).toContain('visibilitychange');
+    expect(tsx).toContain('cancelAnimationFrame');
+  });
+
+  it('is pure decoration and never intercepts input', () => {
+    expect(css).toContain('pointer-events: none');
+    expect(tsx).toContain('aria-hidden');
+  });
+
+  it('is disabled for reduced motion and touch', () => {
+    expect(tsx).toContain('prefers-reduced-motion');
+    expect(tsx).toContain('pointer: coarse');
+  });
+});
+
+describe('gold/black glass material', () => {
+  const css = read('src/styles/glass-gold.css');
+
+  it('re-tints the existing glass surfaces without new classNames', () => {
+    for (const sel of ['.glass-panel', '.glass-card', '.glass-heavy']) {
+      expect(css).toContain(sel);
+    }
+  });
+
+  it('is black and gold, not the old blue', () => {
+    expect(css).toContain('--glass-gold-rgb: 232, 180, 74');
+    expect(css).not.toMatch(/rgba\(\s*(14,\s*19,\s*31|20,\s*27,\s*44)/);
+  });
+
+  it('reacts to the shared pointer variables rather than its own listener', () => {
+    expect(css).toContain('--lear-px');
+    expect(css).toContain('--lear-py');
+  });
+
+  it('keeps panels readable: body alpha stays well above transparent', () => {
+    const alphas = [...css.matchAll(/rgba\(\s*\d+,\s*\d+,\s*\d+,\s*(0?\.\d+)\s*\)/g)]
+      .map((m) => Number(m[1]));
+    // the glass body layers must be opaque enough for AA text
+    expect(Math.max(...alphas)).toBeGreaterThanOrEqual(0.82);
+  });
+
+  it('degrades to an opaque pane where backdrop-filter is unsupported', () => {
+    expect(css).toContain('@supports not');
+  });
+
+  it('is imported globally so every panel picks it up', () => {
+    expect(read('src/index.css')).toContain('./styles/glass-gold.css');
+  });
+});

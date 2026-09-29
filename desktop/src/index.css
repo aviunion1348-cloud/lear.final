@@ -7,6 +7,10 @@
 @import "./styles/tokens.css";
 @import "./styles/animations.css";
 @import "./styles/animations.generated.css";
+/* Gold/black glass material. Deliberately UNLAYERED: unlayered rules win over
+   @layer components, so this re-tints .glass-panel / .glass-card below without
+   !important and without touching a single className in the app. */
+@import "./styles/glass-gold.css";
 @import "tailwindcss";
 
 @layer base {

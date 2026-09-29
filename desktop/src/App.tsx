@@ -19,6 +19,8 @@ import PerfOverlay from './components/fx/PerfOverlay';
 import CinematicLanding from './components/fx/CinematicLanding';
 import ConsoleIgnition from './components/fx/ConsoleIgnition';
 import SectionTransition from './components/fx/SectionTransition';
+import SubsectionChoreography from './components/fx/SubsectionChoreography';
+import PointerSpotlight from './components/fx/PointerSpotlight';
 import { LearProvider, useLear } from './context/LearContext';
 import { logAnimationRegistry } from './lib/animationRegistry';
 import { SFX_COUNT } from './lib/soundEngine';
@@ -145,6 +147,10 @@ function AppContent() {
             serviceContext={chatContext}
           />
 
+          {/* Reveals every panel inside every section as it comes into view.
+              Renders nothing; fail-visible if it never runs. */}
+          <SubsectionChoreography />
+
           {/* Power-on sequence for the console handoff (self-unmounting) */}
           {igniting && <ConsoleIgnition onDone={() => setIgniting(false)} />}
         </div>
@@ -170,8 +176,9 @@ function App() {
         {/* Cinematic z-stack (back → front):
             -11 live/brightened video backdrop · -10/-9 aurora neural field ·
              app content · 90 atmosphere film grain · 95 perf HUD */}
-        <LiveVideoBackdrop />
+        <LiveVideoBackdrop brightness={1.28} />
         <AuroraBackground />
+        <PointerSpotlight />
         <SoundManager />
         <AtmosphereOverlay />
         <PerfOverlay />

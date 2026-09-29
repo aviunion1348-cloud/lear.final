@@ -310,3 +310,67 @@ work with*. The guardrails, all test-enforced:
 ### Verification
 - [x] **44 frontend tests passing** (7 new guards this round), TypeScript clean,
       production build green.
+
+---
+
+## Round 3 — Gold/black glass, per-panel choreography, pointer light
+
+Round 2 animated the *section*. This round animates everything *inside* it, and
+replaces the surface material the whole console is built from — without editing
+a single one of the 25 feature components.
+
+### U-08 · Subsection choreography
+`desktop/src/components/fx/SubsectionChoreography.tsx` + `.css`
+
+Every panel, card and stat tile reveals itself as it enters the viewport: fade
++ 10px rise + un-blur, with a gold hairline drawing across its top edge. 340ms.
+
+- [x] **Zero-touch.** One `MutationObserver` tags matching blocks, one
+      `IntersectionObserver` reveals them. No feature component was modified.
+- [x] **Fail-visible.** Content is only ever dimmed while `data-sub="pending"`,
+      an attribute written exclusively by this module. No JS, a thrown error, a
+      browser without observers — the panel just renders. This layer cannot
+      leave the console blank, which is the only failure mode that would
+      actually matter.
+- [x] **Watchdog at 900ms.** Anything still pending is force-revealed, so a
+      misfiring observer can't strand a panel off-screen.
+- [x] **Cascade capped at 8 blocks x 26ms = 208ms** worst case, and only within
+      a single batch — scrolling a long list never queues a growing delay.
+- [x] **Unobserved after first reveal**; `will-change` released on settle.
+- [x] Compositor-safe properties only; full reduced-motion bypass.
+
+### U-09 · Pointer spotlight
+`desktop/src/components/fx/PointerSpotlight.tsx` + `.css`
+
+A soft gold key-light trails the cursor, and publishes `--lear-px` / `--lear-py`
+on `<html>` so any surface can react to the pointer without its own listener.
+
+- [x] **One passive listener for the entire app.** Panels read CSS variables
+      instead of subscribing, so cost does not scale with the number of cards.
+- [x] **Self-cancelling rAF.** The loop parks itself once the light catches up,
+      so an idle console runs zero animation frames. It also stops on tab-hide.
+- [x] Eased at 12%/frame so the light trails slightly — reads as weight, not lag.
+- [x] Disabled entirely for reduced-motion and coarse (touch) pointers.
+
+### U-10 · Gold/black glassmorphism
+`desktop/src/styles/glass-gold.css`
+
+The old glass was blue (`rgba(14,19,31)`). Now every `.glass-panel`,
+`.glass-card` and `.glass-heavy` is a black pane with a warm gold rim, a lit top
+edge, and a specular sheen that tracks the shared pointer variables.
+
+- [x] **Imported unlayered**, so it wins over `@layer components` in the cascade
+      without a single `!important` and without renaming any class.
+- [x] **Readability first:** body alpha >= 0.82, blur capped at 18px, sheen peaks
+      at 0.06 alpha. Hover changes border and shadow only — no transform on
+      large surfaces, so scrolling a card list can't trigger layout.
+- [x] **`@supports` fallback** to an opaque black-gold pane where
+      `backdrop-filter` is unavailable, rather than degrading into mud.
+
+### Verification
+- [x] **62 frontend tests passing** (18 new guards this round), TypeScript
+      clean, production build green in 6.18s.
+- [ ] **Not verified: the visual result in a real browser.** The build compiles
+      and the contracts hold, but no one has actually looked at these three
+      layers composited together on a live console. Worth a look before this
+      counts as done.

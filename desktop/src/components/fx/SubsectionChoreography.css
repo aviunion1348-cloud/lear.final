@@ -1,0 +1,105 @@
+/* =============================================================================
+   SUBSECTION CHOREOGRAPHY — per-panel reveal inside every console section
+   -----------------------------------------------------------------------------
+   Contract:
+     · Only opacity / transform / filter are animated (compositor-only).
+     · An element is only ever dimmed while data-sub="pending", and that
+       attribute is written exclusively by SubsectionChoreography.tsx. Without
+       the script running, every panel renders normally. Fail-visible by design.
+     · "pending" is a dim, never a hide: opacity floors at 0.001 for exactly one
+       frame-ish, and the watchdog force-clears it at 900ms.
+   ========================================================================== */
+
+/* ---- pending: parked just off its resting position --------------------- */
+[data-sub='pending'] {
+  opacity: 0.001;
+  transform: translate3d(0, 10px, 0) scale(0.994);
+}
+
+/* ---- in: the reveal ----------------------------------------------------- */
+[data-sub='in'] {
+  animation: sub-rise 340ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1))
+    var(--sub-delay, 0ms) both;
+  will-change: transform, opacity, filter;
+}
+
+@keyframes sub-rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0) scale(0.994);
+    filter: blur(6px);
+  }
+  55% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) scale(1);
+    filter: blur(0);
+  }
+}
+
+/* ---- gold hairline that draws across the top edge as it lands ---------- */
+[data-sub='in']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  pointer-events: none;
+  z-index: 2;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(var(--sec-accent, 232, 180, 74), 0.9) 45%,
+    rgba(255, 248, 232, 1) 50%,
+    rgba(var(--sec-accent, 232, 180, 74), 0.9) 55%,
+    transparent
+  );
+  transform-origin: 50% 50%;
+  animation: sub-hairline 460ms var(--ease-swift, cubic-bezier(0.22, 1, 0.36, 1))
+    var(--sub-delay, 0ms) both;
+}
+
+@keyframes sub-hairline {
+  0% {
+    opacity: 0;
+    transform: scaleX(0);
+  }
+  30% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scaleX(1);
+  }
+}
+
+/* ---- done: hand the layer back to the browser --------------------------- */
+[data-sub='done'] {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+
+/* ---- accessibility: no motion, no dimming, no exceptions ---------------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-sub],
+  [data-sub='pending'],
+  [data-sub='in'] {
+    opacity: 1 !important;
+    transform: none !important;
+    filter: none !important;
+    animation: none !important;
+  }
+
+  [data-sub='in']::before {
+    display: none;
+  }
+}

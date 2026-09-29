@@ -1,0 +1,138 @@
+/* =============================================================================
+   GOLD/BLACK GLASSMORPHISM — console surface treatment
+   -----------------------------------------------------------------------------
+   Imported AFTER index.css's component layer so it re-tints the existing
+   .glass-panel / .glass-card / .glass-heavy surfaces without changing a single
+   className in the app. Every panel keeps its API; only its material changes.
+
+   The material, in order of what you see:
+     1. A black-to-charcoal vertical gradient (the glass body).
+     2. A pointer-tracked specular sheen driven by --lear-px / --lear-py, which
+        PointerSpotlight publishes on <html>. One shared listener, no per-card
+        JS. The sheen is a background layer, so it costs no extra element.
+     3. A gold hairline along the top edge — the "lit rim" of the pane.
+     4. A 1px gold-tinted border that warms on hover.
+
+   Readability first — this is a working console, not a screensaver:
+     · Body opacity stays >= 0.72 so text contrast never drops below AA.
+     · Blur is capped at 18px; heavier blur reads as fog and costs fill-rate.
+     · Sheen peaks at 0.06 alpha. It is a hint of light, not a highlight.
+     · Hover changes border + shadow only. No transform on large surfaces, so
+       scrolling a list of cards cannot trigger layout.
+   ========================================================================== */
+
+:root {
+  --glass-gold-rgb: 232, 180, 74;
+  --glass-rim: rgba(232, 180, 74, 0.34);
+  --glass-rim-hover: rgba(232, 180, 74, 0.52);
+  --glass-blur: 18px;
+}
+
+/* ---- 1. the base pane --------------------------------------------------- */
+.glass-panel,
+.glass-card,
+.glass-heavy {
+  position: relative;
+  background:
+    /* pointer sheen — tracks the cursor across the pane */
+    radial-gradient(
+      42rem 42rem at var(--lear-px, 50%) var(--lear-py, 0%),
+      rgba(var(--glass-gold-rgb), 0.06) 0%,
+      rgba(var(--glass-gold-rgb), 0.022) 34%,
+      transparent 62%
+    ),
+    /* the glass body: black, warming very slightly toward the base */
+    linear-gradient(
+      168deg,
+      rgba(18, 16, 12, 0.86) 0%,
+      rgba(10, 10, 13, 0.82) 46%,
+      rgba(14, 12, 9, 0.88) 100%
+    );
+  background-attachment: fixed, scroll;
+  border: 1px solid var(--glass-rim);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.22);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 222, 0.07),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 18px 44px -24px rgba(0, 0, 0, 0.9);
+  transition:
+    border-color 180ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)),
+    box-shadow 180ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+/* ---- 2. the lit rim along the top edge ---------------------------------- */
+.glass-panel::after,
+.glass-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 8%;
+  right: 8%;
+  height: 1px;
+  pointer-events: none;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(var(--glass-gold-rgb), 0.55) 30%,
+    rgba(255, 246, 226, 0.75) 50%,
+    rgba(var(--glass-gold-rgb), 0.55) 70%,
+    transparent
+  );
+  opacity: 0.55;
+  transition: opacity 220ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+/* ---- 3. hover: the pane warms, nothing moves ---------------------------- */
+.glass-panel:hover,
+.glass-card:hover,
+.glass-heavy:hover {
+  border-color: var(--glass-rim-hover);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 244, 222, 0.11),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.5),
+    0 0 0 1px rgba(var(--glass-gold-rgb), 0.06),
+    0 22px 54px -26px rgba(0, 0, 0, 0.95),
+    0 0 34px -12px rgba(var(--glass-gold-rgb), 0.24);
+}
+
+.glass-panel:hover::after,
+.glass-card:hover::after {
+  opacity: 1;
+}
+
+/* ---- 4. heavier variant for modals and overlays ------------------------- */
+.glass-heavy {
+  background:
+    radial-gradient(
+      48rem 48rem at var(--lear-px, 50%) var(--lear-py, 0%),
+      rgba(var(--glass-gold-rgb), 0.05) 0%,
+      transparent 60%
+    ),
+    linear-gradient(168deg, rgba(10, 9, 7, 0.94) 0%, rgba(5, 5, 8, 0.93) 100%);
+  backdrop-filter: blur(26px) saturate(1.3);
+  -webkit-backdrop-filter: blur(26px) saturate(1.3);
+}
+
+/* ---- 5. graceful degradation -------------------------------------------
+   Without backdrop-filter the translucency would turn into mud, so we drop to
+   an opaque black-gold pane instead. Contrast is preserved either way.        */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-panel,
+  .glass-card,
+  .glass-heavy {
+    background: linear-gradient(168deg, #0f0e0b 0%, #08080a 100%);
+  }
+}
+
+/* ---- 6. reduced motion: keep the material, drop the tracking ------------
+   The sheen is pinned to a fixed position so the surface still reads as glass
+   but nothing follows the cursor.                                            */
+@media (prefers-reduced-motion: reduce) {
+  .glass-panel,
+  .glass-card,
+  .glass-heavy {
+    background-position: 50% 0%;
+    transition: none;
+  }
+}
