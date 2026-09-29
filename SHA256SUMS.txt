@@ -3,7 +3,7 @@
 #          Get-FileHash .\learfinal.zip -Algorithm SHA256 (Windows)
 # A match proves the file is byte-for-byte what was published.
 
-8cbeff1f38938ea166666810b5ddc4a937622fa214b4f1e0ed40d8914261d323  learfinal.zip
+cde35e737613a369dd759680fe722904fbbb4cd1d35fb770f9f158010c6ea047  learfinal.zip
 fedc06f8b2f339c2eeb9ad6bc4a7f7eca0ca8632eabe9737695c26f0e5f5ad2f  install.ps1
 447bfd4ffd4ac1aeaf9658a060aa0154d36e66ad5b4d5eb0b2c6fad0c6cf5b1a  install.sh
 8d01d60ed035e051912d61574ea36897fd0344bd7c11b3f1c5ed144232e8a319  INSTALL-LEAR.bat
