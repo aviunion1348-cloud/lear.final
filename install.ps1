@@ -6,7 +6,7 @@
 
     Run it with a single paste:
 
-        powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.ps1 | iex"
+        powershell -ExecutionPolicy Bypass -c "irm https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/install.ps1 | iex"
 
     What it actually does (nothing hidden):
       1. checks Python 3.10+ and Node 18+ are present

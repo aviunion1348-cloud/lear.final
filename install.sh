@@ -7,7 +7,7 @@
 #
 # Run it with a single paste:
 #
-#   curl -fsSL https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.sh | bash
+#   curl -fsSL https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/install.sh | bash
 #
 # Installs into the CURRENT directory. No sudo, no PATH changes.
 # =============================================================================

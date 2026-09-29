@@ -13,7 +13,7 @@
 Paste this into **CMD** or **PowerShell** — it downloads, installs and launches everything:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.ps1 | iex"
+powershell -ExecutionPolicy Bypass -c "irm https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/install.ps1 | iex"
 ```
 
 Prefer double-clicking? Download **[INSTALL-LEAR.bat](https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/INSTALL-LEAR.bat)** and run it.
@@ -21,7 +21,7 @@ Prefer double-clicking? Download **[INSTALL-LEAR.bat](https://github.com/aviunio
 ### macOS / Linux
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.sh | bash
+curl -fsSL https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/install.sh | bash
 ```
 
 The installer checks Python 3.10+ and Node 18+, downloads `leardevop.zip`,
