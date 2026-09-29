@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import './SubsectionChoreography.css';
+import { playMotion } from '../../lib/motionEngine';
 
 /* =============================================================================
    SUBSECTION CHOREOGRAPHY
@@ -57,7 +58,20 @@ export const SubsectionChoreography: React.FC = () => {
     let batchTimer = 0;
 
     const reveal = (el: HTMLElement, index: number) => {
-      el.style.setProperty('--sub-delay', `${Math.min(index, MAX_STAGGER) * STEP_MS}ms`);
+      const delay = Math.min(index, MAX_STAGGER) * STEP_MS;
+
+      // Opt-in override: data-motion="<id>" plays a composed TIER 4 motion for
+      // this element instead of the shared CSS reveal, so a specific panel can
+      // have a specific entrance without a new stylesheet rule. Falls straight
+      // back to the CSS path if the id is invalid or WAAPI is unavailable.
+      const custom = el.dataset.motion;
+      if (custom) {
+        el.dataset.sub = 'done';
+        window.setTimeout(() => playMotion(el, custom), delay);
+        return;
+      }
+
+      el.style.setProperty('--sub-delay', `${delay}ms`);
       el.dataset.sub = 'in';
       const settle = () => {
         el.dataset.sub = 'done';

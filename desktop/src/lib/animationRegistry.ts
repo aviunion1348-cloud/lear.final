@@ -16,6 +16,7 @@
    ========================================================================== */
 import { MOTION_PRESET_COUNT } from './motion';
 import { GENERATED_KEYFRAMES, GENERATED_KEYFRAME_COUNT } from './generatedMotion';
+import { MOTION_SPACE_SIZE, MOTION_AXES } from './motionEngine';
 
 /** TIER 1 — every distinct @keyframes defined in styles/animations.css */
 export const CSS_KEYFRAMES: readonly string[] = [
@@ -99,3 +100,17 @@ export function logAnimationRegistry() {
     'color:#aab3c8',
   );
 }
+
+/* -----------------------------------------------------------------------------
+   TIER 4 — parametric motion space (lib/motionEngine.ts)
+   -----------------------------------------------------------------------------
+   138,240 addressable animations composed at runtime from six orthogonal axes.
+   Reported SEPARATELY and never folded into ANIMATION_COUNT, because these are
+   composed variants, not distinct authored animations. Conflating the two is
+   exactly the kind of number-inflation this module exists to prevent.
+
+   Every id in the space resolves to a playable WAAPI keyframe array - that is
+   verified by __tests__/MotionEngine.test.ts, which samples 3,000 of them.
+   -------------------------------------------------------------------------- */
+export const MOTION_SPACE = MOTION_SPACE_SIZE;
+export const MOTION_SPACE_AXES = MOTION_AXES;

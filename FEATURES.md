@@ -94,3 +94,56 @@ node scripts/gen_playbooks.mjs
 Deterministic — same inputs produce a byte-identical file, so it is safe to run
 in CI and diff. As real action modules are added to `prash/actions/`, the
 executable count rises on its own with no edits to the catalogue.
+
+---
+
+# Parametric motion engine — 138,240 addressable animations
+
+`desktop/src/lib/motionEngine.ts`
+
+```
+shape (40) x ease (12) x distance (4) x duration (6) x origin (6) x accent (4)
+= 138,240
+```
+
+Ask for an exact motion by id — `rise.swift.far.normal.top.gold` — and get a
+playable Web Animations keyframe array. Any element can opt in with
+`data-motion="<id>"` and the subsection choreography will play it instead of the
+shared CSS reveal, with no new stylesheet rule.
+
+## What this number is, and what it is not
+
+It is **not** 138,240 hand-authored animations, and nothing in this repo claims
+it is. The honest distinct named-animation count stays **2,183**, reported
+separately by `animationRegistry.ts` — a test asserts TIER 4 is never folded
+into it.
+
+What it *is*: a space where every single id resolves to a real, playable
+animation. `MotionEngine.test.ts` samples 3,000 ids spread across the whole
+space and asserts each one composes, animates only compositor-safe properties,
+contains no `NaN`, and ends fully visible.
+
+## Why composition instead of 80,000 generated keyframes
+
+Generating 80,000 `@keyframes` blocks would produce roughly **40–60 MB of CSS**.
+The browser parses all of it before first paint and holds the entire rule set in
+memory — every user, every load, including the ~99.9% of those animations nobody
+triggers. That turns "loads instantly" into "hangs for several seconds," which
+is the opposite of the 100fps target the rest of this UI is built around.
+
+Composition costs nothing until called. A motion is built on demand as a small
+array of objects and discarded when it finishes. A test guards this directly: it
+fails if anyone ever generates a giant stylesheet to back the space.
+
+Large space, small runtime. Those are usually in tension — composition is how
+you get both.
+
+## Safety properties (all test-enforced)
+
+- Duration capped at **900ms**. This is a console, not a title sequence.
+- Every motion **ends at opacity 1**, so no composed animation can strand an
+  element invisible.
+- `fill: 'both'` — an interrupted or never-started motion holds a defined state.
+- `transform` / `opacity` / `filter` only.
+- `prefers-reduced-motion` returns `null` and leaves the element untouched.
+- Invalid ids return `null` rather than guessing.
