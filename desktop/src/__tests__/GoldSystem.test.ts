@@ -282,3 +282,72 @@ describe('gold/black glass material', () => {
     expect(read('src/index.css')).toContain('./styles/glass-gold.css');
   });
 });
+
+/* =============================================================================
+   ROUND 4 — onboarding stage: the duplicate-header bug and the last of the blue
+   ========================================================================== */
+describe('wizard stage', () => {
+  const wiz = read('src/components/Wizard.tsx');
+  const css = read('src/components/Wizard.css');
+
+  it('renders the connector header exactly once', () => {
+    // ConnectorForm paints the header (with live status, identity chip and the
+    // re-verify button). Wizard used to paint its own copy directly above it,
+    // which is the duplication visible in the reported screenshot.
+    expect(wiz).toContain('<ConnectorForm');
+    expect(wiz).not.toContain('{selectedConnector.description}');
+    expect(wiz).not.toContain('{selectedConnector.name}');
+  });
+
+  it('does not nest a glass card inside another glass card', () => {
+    // ConnectorForm wraps itself in .glass-card; the pane holding it must not.
+    const pane = wiz.slice(wiz.indexOf('Dynamic Form Area'), wiz.indexOf('<ConnectorForm'));
+    expect(pane).not.toContain('glass-card');
+  });
+
+  it('lets the live backdrop through instead of painting over it', () => {
+    expect(wiz).not.toContain('min-h-screen bg-background');
+    expect(wiz).toContain('wizard-stage');
+  });
+
+  it('keeps a visible keyboard focus ring independent of the glow', () => {
+    expect(css).toContain(':focus-visible');
+    expect(css).toContain('outline:');
+  });
+
+  it('stops its standing animation under reduced motion', () => {
+    expect(css).toContain('prefers-reduced-motion');
+  });
+});
+
+describe('palette: gold and black, no leftover cyan console chrome', () => {
+  const surfaces = [
+    'src/components/ChatWorkspace.tsx',
+    'src/components/Wizard.tsx',
+    'src/components/Chatbot.tsx',
+    'src/components/fx/AuroraBackground.tsx',
+    'src/components/fx/AtmosphereOverlay.tsx',
+  ];
+
+  it('has no cyan/blue decorative classes left on the main surfaces', () => {
+    for (const f of surfaces) {
+      const src = read(f);
+      for (const bad of ['cyan-', 'text-sky-', 'bg-blue-', '#00F0FF']) {
+        expect(src.includes(bad), `${f} still uses ${bad}`).toBe(false);
+      }
+    }
+  });
+
+  it('warms the aurora neural field to gold', () => {
+    const a = read('src/components/fx/AuroraBackground.tsx');
+    expect(a).not.toContain('rgba(150,180,255');
+    expect(a).toContain('rgba(232,196,120');
+  });
+
+  it('still keeps the semantic status colours distinguishable', () => {
+    // Gold everywhere would make success/danger unreadable. These stay.
+    const t = read('src/styles/tokens.css');
+    expect(t).toContain('#3fbf7f'); // success
+    expect(t).toContain('#e5484d'); // danger
+  });
+});

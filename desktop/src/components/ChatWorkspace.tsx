@@ -315,12 +315,12 @@ export const ChatWorkspace: React.FC = () => {
       case 'slack':
         return { label: 'Slack', bg: 'bg-[#4A154B]/30 text-[#ECB22E] border-[#E01E5A]/40' };
       case 'email':
-        return { label: 'Email', bg: 'bg-blue-500/20 text-sky-400 border-sky-500/40' };
+        return { label: 'Email', bg: 'bg-accent/15 text-accent-light border-accent/35' };
       case 'incident':
         return { label: 'Incident', bg: 'bg-rose-500/20 text-rose-400 border-rose-500/40' };
       case 'dashboard':
       default:
-        return { label: 'Dashboard', bg: 'bg-cyan-500/20 text-[#00F0FF] border-cyan-500/40' };
+        return { label: 'Dashboard', bg: 'bg-accent/20 text-[#E8B44A] border-accent/40' };
     }
   };
 
@@ -349,8 +349,8 @@ export const ChatWorkspace: React.FC = () => {
           const codeSnippet = codeLines.join('\n');
           const codeKey = `${msgId}_code_${idx}`;
           nodes.push(
-            <div key={codeKey} className="my-2 rounded-lg border border-[#1E293B] bg-[#07090E] overflow-hidden text-xs font-mono">
-              <div className="flex items-center justify-between px-3 py-1.5 bg-[#0D121F] border-b border-[#1E293B] text-[11px] text-gray-400">
+            <div key={codeKey} className="my-2 rounded-lg border border-border-subtle bg-[#07090E] overflow-hidden text-xs font-mono">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-[#0D121F] border-b border-border-subtle text-[11px] text-gray-400">
                 <span>{codeLang || 'console'}</span>
                 <button
                   onClick={() => handleCopyCode(codeSnippet, codeKey)}
@@ -378,14 +378,14 @@ export const ChatWorkspace: React.FC = () => {
           );
         } else if (line.startsWith('## ')) {
           nodes.push(
-            <h3 key={`h_${idx}`} className="text-base font-bold text-[#00F0FF] mt-3 mb-1">
+            <h3 key={`h_${idx}`} className="text-base font-bold text-[#E8B44A] mt-3 mb-1">
               {line.replace('## ', '')}
             </h3>
           );
         } else if (line.startsWith('• ') || line.startsWith('- ')) {
           nodes.push(
             <div key={`li_${idx}`} className="flex items-start gap-2 my-0.5 text-xs text-gray-200">
-              <span className="text-[#00F0FF] mt-0.5">•</span>
+              <span className="text-[#E8B44A] mt-0.5">•</span>
               <span>{formatInlineMarkdown(line.substring(2))}</span>
             </div>
           );
@@ -416,7 +416,7 @@ export const ChatWorkspace: React.FC = () => {
       }
       if (part.startsWith('`') && part.endsWith('`')) {
         return (
-          <code key={i} className="px-1.5 py-0.5 rounded bg-black/50 border border-[#1E293B] text-[#00F0FF] font-mono text-[11px]">
+          <code key={i} className="px-1.5 py-0.5 rounded bg-black/50 border border-border-subtle text-[#E8B44A] font-mono text-[11px]">
             {part.slice(1, -1)}
           </code>
         );
@@ -428,11 +428,11 @@ export const ChatWorkspace: React.FC = () => {
   return (
     <div className="flex h-full w-full bg-[#080B11] text-gray-100 overflow-hidden font-sans">
       {/* ─── LEFT COLUMN: Session History & Audit Log ─── */}
-      <div className="w-80 md:w-96 border-r border-[#1E293B] bg-[#0A0E18] flex flex-col h-full flex-shrink-0">
+      <div className="w-80 md:w-96 border-r border-border-subtle bg-[#0A0E18] flex flex-col h-full flex-shrink-0">
         {/* Header */}
-        <div className="p-4 border-b border-[#1E293B] flex items-center justify-between">
+        <div className="p-4 border-b border-border-subtle flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 border border-cyan-500/30 flex items-center justify-center text-[#00F0FF]">
+            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/25 to-amber-600/15 border border-accent/30 flex items-center justify-center text-[#E8B44A]">
               <Sparkles className="w-4 h-4" />
             </div>
             <div>
@@ -445,7 +445,7 @@ export const ChatWorkspace: React.FC = () => {
           <button
             onClick={handleCreateNewSession}
             title="Start new investigation"
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-[#00F0FF]/10 hover:bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/30 text-xs font-medium transition-colors"
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-md bg-[#E8B44A]/10 hover:bg-[#E8B44A]/20 text-[#E8B44A] border border-[#E8B44A]/30 text-xs font-medium transition-colors"
           >
             <Plus className="w-3.5 h-3.5" />
             <span>New</span>
@@ -453,14 +453,14 @@ export const ChatWorkspace: React.FC = () => {
         </div>
 
         {/* Filter Tabs */}
-        <div className="p-2 border-b border-[#1E293B] bg-[#07090E]/60 flex items-center gap-1 overflow-x-auto text-[11px]">
+        <div className="p-2 border-b border-border-subtle bg-[#07090E]/60 flex items-center gap-1 overflow-x-auto text-[11px]">
           {(['all', 'slack', 'email', 'dashboard', 'incident'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setFilterOrigin(tab)}
               className={`px-2.5 py-1 rounded capitalize font-medium whitespace-nowrap transition-all ${
                 filterOrigin === tab
-                  ? 'bg-[#00F0FF] text-[#041019] font-bold shadow-sm'
+                  ? 'bg-[#E8B44A] text-[#041019] font-bold shadow-sm'
                   : 'text-gray-400 hover:text-gray-200 hover:bg-[#111624]'
               }`}
             >
@@ -470,7 +470,7 @@ export const ChatWorkspace: React.FC = () => {
         </div>
 
         {/* Search */}
-        <div className="p-2.5 border-b border-[#1E293B] bg-[#0A0E18]">
+        <div className="p-2.5 border-b border-border-subtle bg-[#0A0E18]">
           <div className="relative">
             <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-gray-500" />
             <input
@@ -478,7 +478,7 @@ export const ChatWorkspace: React.FC = () => {
               placeholder="Search chat history & audit..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-[#0E1322] border border-[#1E293B] text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#00F0FF]/50 transition-colors"
+              className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-[#0E1322] border border-border-subtle text-gray-200 placeholder-gray-500 focus:outline-none focus:border-[#E8B44A]/50 transition-colors"
             />
           </div>
         </div>
@@ -487,7 +487,7 @@ export const ChatWorkspace: React.FC = () => {
         <div className="flex-1 overflow-y-auto divide-y divide-[#1E293B]/60">
           {loadingSessions && sessions.length === 0 ? (
             <div className="p-8 text-center text-xs text-gray-500 flex flex-col items-center gap-2">
-              <RefreshCw className="w-4 h-4 animate-spin text-[#00F0FF]" />
+              <RefreshCw className="w-4 h-4 animate-spin text-[#E8B44A]" />
               <span>Loading audit sessions...</span>
             </div>
           ) : filteredSessions.length === 0 ? (
@@ -504,7 +504,7 @@ export const ChatWorkspace: React.FC = () => {
                   onClick={() => setActiveSessionId(session.session_id)}
                   className={`p-3 cursor-pointer transition-all ${
                     isSelected
-                      ? 'bg-[#111625] border-l-2 border-[#00F0FF]'
+                      ? 'bg-[#111625] border-l-2 border-[#E8B44A]'
                       : 'hover:bg-[#0E1322]/80 border-l-2 border-transparent'
                   }`}
                 >
@@ -539,7 +539,7 @@ export const ChatWorkspace: React.FC = () => {
         </div>
 
         {/* Audit Log Footer Status */}
-        <div className="p-3 border-t border-[#1E293B] bg-[#07090E] text-[11px] flex items-center justify-between text-gray-400 font-mono">
+        <div className="p-3 border-t border-border-subtle bg-[#07090E] text-[11px] flex items-center justify-between text-gray-400 font-mono">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             Live Audit Stream
@@ -553,7 +553,7 @@ export const ChatWorkspace: React.FC = () => {
         {activeSession ? (
           <>
             {/* Top Workspace Header */}
-            <div className="px-6 py-3.5 border-b border-[#1E293B] bg-[#0B0F19] flex items-center justify-between z-10">
+            <div className="px-6 py-3.5 border-b border-border-subtle bg-[#0B0F19] flex items-center justify-between z-10">
               <div className="flex items-center gap-3">
                 <div className="flex flex-col">
                   <div className="flex items-center gap-2">
@@ -574,7 +574,7 @@ export const ChatWorkspace: React.FC = () => {
                           ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
                           : activeSession.status === 'DENIED'
                           ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                          : 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/30'
+                          : 'bg-accent/10 text-accent border border-accent/30'
                       }`}
                     >
                       {activeSession.status}
@@ -597,14 +597,14 @@ export const ChatWorkspace: React.FC = () => {
                   title="Reload conversation"
                   className="p-1.5 rounded-md hover:bg-[#1E293B] text-gray-400 hover:text-white transition-colors"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loadingChat ? 'animate-spin text-[#00F0FF]' : ''}`} />
+                  <RefreshCw className={`w-4 h-4 ${loadingChat ? 'animate-spin text-[#E8B44A]' : ''}`} />
                 </button>
               </div>
             </div>
 
             {/* Action Feedback Banner */}
             {actionFeedback && (
-              <div className="px-6 py-2 bg-gradient-to-r from-emerald-950/40 to-cyan-950/40 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 font-mono animate-fadeIn">
+              <div className="px-6 py-2 bg-gradient-to-r from-amber-950/40 to-yellow-950/30 border-b border-emerald-500/30 text-emerald-300 text-xs flex items-center gap-2 font-mono animate-fadeIn">
                 <CheckCircle2 className="w-4 h-4 text-emerald-400" />
                 <span>{actionFeedback}</span>
               </div>
@@ -614,7 +614,7 @@ export const ChatWorkspace: React.FC = () => {
             <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               {activeSession.messages.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-8 text-gray-400">
-                  <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-[#00F0FF] mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-[#E8B44A] mb-3">
                     <Sparkles className="w-6 h-6" />
                   </div>
                   <h4 className="text-sm font-semibold text-white mb-1">Lear Autonomous SRE Ready</h4>
@@ -635,7 +635,7 @@ export const ChatWorkspace: React.FC = () => {
                         className={`w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0 text-xs font-bold border ${
                           isUser
                             ? 'bg-[#1E293B] text-gray-200 border-gray-700'
-                            : 'bg-gradient-to-br from-[#00F0FF]/20 to-blue-500/20 text-[#00F0FF] border-[#00F0FF]/30'
+                            : 'bg-gradient-to-br from-[#E8B44A]/25 to-amber-600/15 text-[#E8B44A] border-[#E8B44A]/30'
                         }`}
                       >
                         {isUser ? <User className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
@@ -653,13 +653,13 @@ export const ChatWorkspace: React.FC = () => {
                           className={`rounded-xl px-4 py-3 text-xs leading-relaxed border ${
                             isUser
                               ? 'bg-[#0E1626] border-[#1E2E48] text-gray-100 shadow-sm'
-                              : 'bg-[#0A0E18] border-[#1E293B] text-gray-200 shadow-md w-full'
+                              : 'bg-[#0A0E18] border-border-subtle text-gray-200 shadow-md w-full'
                           }`}
                         >
                           {/* Attached file bubble */}
                           {msg.attachment && (
-                            <div className="mb-2.5 p-2.5 rounded-lg bg-[#07090E] border border-[#1E293B] flex items-center justify-between text-xs font-mono">
-                              <div className="flex items-center gap-2 text-cyan-400">
+                            <div className="mb-2.5 p-2.5 rounded-lg bg-[#07090E] border border-border-subtle flex items-center justify-between text-xs font-mono">
+                              <div className="flex items-center gap-2 text-accent">
                                 <FileCode className="w-4 h-4" />
                                 <span className="font-bold">{msg.attachment.filename}</span>
                                 {msg.attachment.size && (
@@ -680,7 +680,7 @@ export const ChatWorkspace: React.FC = () => {
                           {msg.role === 'assistant' &&
                             activeSession.incident_id &&
                             activeSession.status === 'ACTIVE' && (
-                              <div className="mt-4 pt-3 border-t border-[#1E293B] flex items-center gap-2.5">
+                              <div className="mt-4 pt-3 border-t border-border-subtle flex items-center gap-2.5">
                                 <button
                                   onClick={() => handleApproveAction(activeSession.incident_id!)}
                                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-bold transition-colors"
@@ -707,11 +707,11 @@ export const ChatWorkspace: React.FC = () => {
               {/* Streaming / Sending Indicator */}
               {sending && (
                 <div className="flex gap-3 max-w-xl mr-auto animate-pulse">
-                  <div className="w-7 h-7 rounded-lg bg-cyan-500/20 border border-cyan-500/30 text-[#00F0FF] flex items-center justify-center">
+                  <div className="w-7 h-7 rounded-lg bg-accent/20 border border-accent/30 text-[#E8B44A] flex items-center justify-center">
                     <Bot className="w-4 h-4" />
                   </div>
-                  <div className="bg-[#0A0E18] border border-[#1E293B] rounded-xl px-4 py-2.5 text-xs text-gray-400 font-mono flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-[#00F0FF] animate-spin" />
+                  <div className="bg-[#0A0E18] border border-border-subtle rounded-xl px-4 py-2.5 text-xs text-gray-400 font-mono flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-[#E8B44A] animate-spin" />
                     <span>Lear investigating cluster telemetry & formulating reply...</span>
                   </div>
                 </div>
@@ -721,7 +721,7 @@ export const ChatWorkspace: React.FC = () => {
             </div>
 
             {/* Quick Action Chips */}
-            <div className="px-6 py-2 border-t border-[#1E293B]/60 bg-[#0A0E18]/60 flex items-center gap-2 overflow-x-auto text-[11px]">
+            <div className="px-6 py-2 border-t border-border-subtle/60 bg-[#0A0E18]/60 flex items-center gap-2 overflow-x-auto text-[11px]">
               <span className="text-gray-500 text-[10px] uppercase font-mono tracking-wider flex-shrink-0">
                 Suggested:
               </span>
@@ -738,7 +738,7 @@ export const ChatWorkspace: React.FC = () => {
                   className={`px-2.5 py-1 rounded-full text-xs whitespace-nowrap transition-colors border ${
                     chip.startsWith('⚡')
                       ? 'bg-accent/15 hover:bg-accent/25 text-accent border-accent/40 font-semibold'
-                      : 'bg-[#0E1626] hover:bg-[#152035] text-gray-300 hover:text-white border-[#1E293B]'
+                      : 'bg-[#0E1626] hover:bg-[#152035] text-gray-300 hover:text-white border-border-subtle'
                   }`}
                 >
                   {chip}
@@ -748,9 +748,9 @@ export const ChatWorkspace: React.FC = () => {
 
             {/* Attached File Preview Pill */}
             {attachedFile && (
-              <div className="px-6 py-1.5 bg-[#0D1322] border-t border-[#1E293B] flex items-center justify-between text-xs text-cyan-300 font-mono">
+              <div className="px-6 py-1.5 bg-surface border-t border-border-subtle flex items-center justify-between text-xs text-accent-light font-mono">
                 <div className="flex items-center gap-2">
-                  <Paperclip className="w-3.5 h-3.5 text-cyan-400" />
+                  <Paperclip className="w-3.5 h-3.5 text-accent" />
                   <span className="font-bold">{attachedFile.filename}</span>
                   <span className="text-[10px] text-gray-400">
                     ({Math.round((attachedFile.size || 0) / 1024)} KB)
@@ -767,8 +767,8 @@ export const ChatWorkspace: React.FC = () => {
             )}
 
             {/* Bottom Input Area */}
-            <div className="p-4 border-t border-[#1E293B] bg-[#0A0E18]">
-              <div className="relative flex items-center rounded-xl bg-[#0E1322] border border-[#1E293B] focus-within:border-[#00F0FF]/50 transition-colors p-1.5">
+            <div className="p-4 border-t border-border-subtle bg-[#0A0E18]">
+              <div className="relative flex items-center rounded-xl bg-[#0E1322] border border-border-subtle focus-within:border-[#E8B44A]/50 transition-colors p-1.5">
                 {/* File Upload Hidden Input */}
                 <input
                   type="file"
@@ -784,10 +784,10 @@ export const ChatWorkspace: React.FC = () => {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingFile || sending}
                   title="Upload log or configuration file"
-                  className="p-2 text-gray-400 hover:text-cyan-400 hover:bg-[#1E293B]/50 rounded-lg transition-colors flex-shrink-0"
+                  className="p-2 text-gray-400 hover:text-accent hover:bg-surface-elevated/60 rounded-lg transition-colors flex-shrink-0"
                 >
                   {uploadingFile ? (
-                    <RefreshCw className="w-4 h-4 animate-spin text-cyan-400" />
+                    <RefreshCw className="w-4 h-4 animate-spin text-accent" />
                   ) : (
                     <Paperclip className="w-4 h-4" />
                   )}
@@ -814,7 +814,7 @@ export const ChatWorkspace: React.FC = () => {
                   disabled={(!inputText.trim() && !attachedFile) || sending}
                   className={`p-2 rounded-lg transition-all flex-shrink-0 ${
                     inputText.trim() || attachedFile
-                      ? 'bg-[#00F0FF] text-[#041019] hover:bg-[#38BDF8] shadow-md'
+                      ? 'bg-[#E8B44A] text-[#041019] hover:bg-[#38BDF8] shadow-md'
                       : 'text-gray-600 cursor-not-allowed'
                   }`}
                 >
@@ -825,7 +825,7 @@ export const ChatWorkspace: React.FC = () => {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-            <div className="w-12 h-12 rounded-xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-[#00F0FF] mb-3">
+            <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-[#E8B44A] mb-3">
               <Sparkles className="w-6 h-6" />
             </div>
             <h3 className="text-base font-bold text-white mb-1">No Chat Session Selected</h3>
@@ -834,7 +834,7 @@ export const ChatWorkspace: React.FC = () => {
             </p>
             <button
               onClick={handleCreateNewSession}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#00F0FF] text-[#041019] text-xs font-bold hover:bg-[#38BDF8] transition-colors"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[#E8B44A] text-[#041019] text-xs font-bold hover:bg-[#38BDF8] transition-colors"
             >
               <Plus className="w-4 h-4" />
               <span>Start New Investigation</span>

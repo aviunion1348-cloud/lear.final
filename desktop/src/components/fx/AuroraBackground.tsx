@@ -147,7 +147,7 @@ export const AuroraBackground: React.FC<{ className?: string }> = ({ className =
           const d2 = dx * dx + dy * dy;
           if (d2 < link2) {
             const alpha = (1 - d2 / link2) * 0.16;
-            c2d.strokeStyle = `rgba(150,180,255,${alpha.toFixed(3)})`;
+            c2d.strokeStyle = `rgba(232,196,120,${alpha.toFixed(3)})`;
             c2d.beginPath();
             c2d.moveTo(a.x, a.y);
             c2d.lineTo(b.x, b.y);
@@ -156,7 +156,7 @@ export const AuroraBackground: React.FC<{ className?: string }> = ({ className =
         }
       }
       for (const n of nodes) {
-        c2d.fillStyle = 'rgba(190,205,255,0.5)';
+        c2d.fillStyle = 'rgba(255,226,160,0.55)';
         c2d.beginPath();
         c2d.arc(n.x, n.y, n.r, 0, Math.PI * 2);
         c2d.fill();

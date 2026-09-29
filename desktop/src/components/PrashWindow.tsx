@@ -22,7 +22,7 @@ export default function PrashWindow() {
 
   return (
     <div className="bg-gradient-to-br from-gray-900 to-black border border-gray-800 rounded-2xl p-6 relative overflow-hidden h-full flex flex-col">
-      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-accent to-blue-500" />
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-accent to-amber-600" />
       
       <div className="flex justify-between items-start mb-4">
         <h3 className="text-xl font-semibold flex items-center gap-2 text-accent">

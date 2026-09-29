@@ -60,7 +60,7 @@ export const AtmosphereOverlay: React.FC<{ intensity?: number }> = ({ intensity 
           className="absolute -inset-[40%]"
           style={{
             background:
-              'linear-gradient(115deg, transparent 40%, rgba(232, 180, 74,0.05) 48%, rgba(34,211,238,0.05) 52%, transparent 60%)',
+              'linear-gradient(115deg, transparent 40%, rgba(232, 180, 74,0.05) 48%, rgba(255,240,205,0.05) 52%, transparent 60%)',
             animation: 'sheen 14s ease-in-out infinite',
           }}
         />

@@ -1,0 +1,124 @@
+/* =============================================================================
+   WIZARD STAGE — the onboarding screen, gold/black
+   -----------------------------------------------------------------------------
+   The wizard used to paint an opaque bg-background across the viewport, which
+   covered the live video backdrop and the aurora field that App mounts behind
+   everything. The stage is transparent now; these rules supply its own depth
+   instead of hiding what is already there.
+
+   Motion budget: the intro plays once, in 520ms. The only standing animation is
+   the edge rail, which is a single 2px transform — it cannot cost a frame on
+   the form itself, and it stops under reduced motion.
+   ========================================================================== */
+
+.wizard-stage {
+  /* A warm vignette that sits ON the video rather than replacing it. */
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgba(232, 180, 74, 0.07) 0%, transparent 55%),
+    radial-gradient(100% 100% at 50% 50%, transparent 40%, rgba(3, 3, 6, 0.72) 100%);
+}
+
+/* ---- the gold scan rail down the left edge ------------------------------ */
+.wizard-rail {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 2px;
+  z-index: 5;
+  pointer-events: none;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(232, 180, 74, 0.7) 22%,
+    rgba(255, 246, 226, 0.95) 50%,
+    rgba(232, 180, 74, 0.7) 78%,
+    transparent
+  );
+  box-shadow: 0 0 20px rgba(232, 180, 74, 0.45);
+  transform-origin: 50% 0%;
+  animation:
+    wizard-rail-draw 760ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both,
+    wizard-rail-breathe 5.5s ease-in-out 900ms infinite;
+}
+
+@keyframes wizard-rail-draw {
+  0% {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+  100% {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes wizard-rail-breathe {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+/* ---- the title block lifts in once -------------------------------------- */
+.wizard-intro {
+  animation: wizard-intro 520ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+@keyframes wizard-intro {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0);
+    filter: blur(8px);
+  }
+  60% {
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+    filter: blur(0);
+  }
+}
+
+/* ---- inputs: gold focus, and a readable resting state ------------------- */
+.wizard-stage input,
+.wizard-stage input[type='text'],
+.wizard-stage input[type='password'] {
+  background: rgba(6, 6, 9, 0.72);
+  border-color: rgba(232, 180, 74, 0.16);
+  transition:
+    border-color 160ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)),
+    box-shadow 160ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)),
+    background-color 160ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.wizard-stage input:focus {
+  border-color: rgba(232, 180, 74, 0.62);
+  background: rgba(10, 9, 6, 0.9);
+  box-shadow:
+    0 0 0 1px rgba(232, 180, 74, 0.28),
+    0 0 26px -6px rgba(232, 180, 74, 0.42);
+  outline: none;
+}
+
+/* Focus must stay visible for keyboard users even if the glow is dropped. */
+.wizard-stage button:focus-visible,
+.wizard-stage input:focus-visible {
+  outline: 2px solid rgba(232, 180, 74, 0.8);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-rail,
+  .wizard-intro {
+    animation: none;
+  }
+  .wizard-rail {
+    opacity: 0.6;
+  }
+}

@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect } from 'react';
 import { Cloud, GitBranch, Activity, Shield, Layers, CheckCircle2, Loader2, ArrowRight, Sparkles } from 'lucide-react';
 import ConnectorForm, { type AuthField } from './ConnectorForm';
+import './Wizard.css';
 
 interface Connector {
   id: string;
@@ -75,20 +76,23 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-background text-white flex items-center justify-center">
+      <div className="min-h-screen text-white flex items-center justify-center">
         <Loader2 className="w-8 h-8 animate-spin text-accent" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background text-white flex flex-col items-center py-12 px-8 relative overflow-y-auto">
+    <div className="min-h-screen text-white flex flex-col items-center py-12 px-8 relative overflow-y-auto wizard-stage">
+      {/* Gold scan rail — the stage's one piece of standing motion */}
+      <span className="wizard-rail" aria-hidden="true" />
+
       {/* Background Ambience */}
       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-accent/10 blur-[140px] rounded-full pointer-events-none" />
-      <div className="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-cyan-500/10 blur-[140px] rounded-full pointer-events-none" />
+      <div className="absolute bottom-[-20%] right-[-10%] w-[40%] h-[40%] bg-amber-500/10 blur-[140px] rounded-full pointer-events-none" />
 
       <div className="w-full max-w-5xl relative z-10">
-        <div className="text-center mb-10">
+        <div className="text-center mb-10 wizard-intro">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/25 text-accent text-xs font-semibold mb-3">
             <Sparkles size={14} /> LEAR INTELLIGENCE PLATFORM
           </div>
@@ -101,7 +105,7 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
         <div className="flex flex-col lg:flex-row gap-8">
           {/* Category & Connector Selection */}
           <div className="w-full lg:w-72 shrink-0 space-y-4">
-            <div className="glass-panel rounded-xl p-2 space-y-1">
+            <div data-sub-block className="glass-panel rounded-xl p-2 space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-1.5 block">
                 Categories
               </span>
@@ -131,7 +135,7 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
             </div>
 
             {/* Connectors in Category */}
-            <div className="glass-panel rounded-xl p-2 space-y-1">
+            <div data-sub-block className="glass-panel rounded-xl p-2 space-y-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-1.5 block">
                 Services
               </span>
@@ -163,46 +167,23 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
           </div>
 
           {/* Dynamic Form Area */}
-          <div className="flex-1 glass-card rounded-2xl p-8 flex flex-col justify-between">
+          <div className="flex-1 flex flex-col justify-between min-w-0">
             {selectedConnector ? (
               <div className="space-y-6">
-                <div className="flex items-center justify-between pb-4 border-b border-border-subtle">
-                  <div className="flex items-center gap-3">
-                    <div
-                      className="p-3 rounded-xl border border-white/10"
-                      style={{ backgroundColor: `${selectedConnector.color}20` }}
-                    >
-                      <Cloud size={24} style={{ color: selectedConnector.color }} />
-                    </div>
-                    <div>
-                      <h2 className="text-xl font-bold text-white">{selectedConnector.name}</h2>
-                      <p className="text-xs text-gray-400">{selectedConnector.description}</p>
-                    </div>
-                  </div>
-                  <span
-                    className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-                      selectedConnector.status === 'configured'
-                        ? 'bg-accent/15 text-accent border border-accent/30'
-                        : 'bg-surface text-gray-400 border border-border-subtle'
-                    }`}
-                  >
-                    {selectedConnector.status === 'configured' ? '● Configured' : '○ Not Configured'}
-                  </span>
-                </div>
-
                 <ConnectorForm
+                  key={selectedConnector.id}
                   connector={selectedConnector}
                   onSuccess={handleConnectorConnected}
                   onDisconnect={handleConnectorDisconnected}
                 />
               </div>
             ) : (
-              <div className="flex items-center justify-center py-20 text-gray-500">
+              <div className="glass-card rounded-2xl flex items-center justify-center py-20 text-gray-500">
                 Select a service to configure credentials
               </div>
             )}
 
-            <div className="flex justify-end pt-6 border-t border-border-subtle mt-8">
+            <div className="flex justify-end pt-6 mt-8">
               <button
                 onClick={handleFinish}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-surface hover:bg-surface-elevated border border-border-subtle hover:border-accent/40 text-xs font-semibold text-white transition-all cursor-pointer"

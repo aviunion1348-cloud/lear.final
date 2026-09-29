@@ -760,7 +760,7 @@ export default function Chatbot({ isOpen, onClose, serviceContext }: ChatbotProp
                   onClick={() => setChannelMode('email')}
                   className={`px-2 py-0.5 rounded text-[10px] font-medium transition-all cursor-pointer ${
                     channelMode === 'email'
-                      ? 'bg-blue-500/20 text-blue-300 border border-blue-500/40 font-bold'
+                      ? 'bg-accent/20 text-accent-light border border-accent/40 font-bold'
                       : 'text-gray-400 hover:text-white border border-transparent'
                   }`}
                 >
