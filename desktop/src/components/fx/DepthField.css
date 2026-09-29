@@ -1,0 +1,73 @@
+/* =============================================================================
+   DEPTH FIELD — the CSS half
+   -----------------------------------------------------------------------------
+   DepthField.tsx writes three custom properties on the hovered panel:
+     --dp-rx   rotateX  (deg)
+     --dp-ry   rotateY  (deg)
+     --dp-lift translateY lift (px, negative direction applied here)
+
+   Everything else happens here, on the compositor.
+
+   The defaults below matter as much as the effect: a panel with no values set
+   resolves to 0deg / 0deg / 0px, i.e. exactly how it looked before this module
+   existed. If the script never runs, never matches, or throws, the console is
+   unchanged rather than broken.
+   ========================================================================== */
+
+.glass-panel,
+.glass-card,
+[data-depth] {
+  --dp-rx: 0deg;
+  --dp-ry: 0deg;
+  --dp-lift: 0px;
+}
+
+/* Only the ACTIVE panel gets a transform and a transition. Applying these to
+   every panel would put dozens of elements into their own composited layer for
+   the whole session, which costs GPU memory and buys nothing. */
+[data-depth-active='true'] {
+  transform:
+    perspective(1200px)
+    rotateX(var(--dp-rx))
+    rotateY(var(--dp-ry))
+    translate3d(0, calc(var(--dp-lift) * -1), 0);
+  /* Short, so the panel tracks the cursor instead of lagging behind it, but
+     long enough that a fast flick doesn't read as a jump. */
+  transition:
+    transform 120ms cubic-bezier(0.2, 0, 0, 1),
+    box-shadow 200ms cubic-bezier(0.2, 0, 0, 1);
+  box-shadow:
+    0 18px 50px -24px rgba(0, 0, 0, 0.9),
+    0 0 40px -22px rgba(232, 180, 74, 0.55);
+}
+
+/* When the pointer leaves, the element loses data-depth-active and falls back
+   to this rule, which eases it home rather than snapping. */
+.glass-panel,
+.glass-card,
+[data-depth] {
+  transition: transform 260ms cubic-bezier(0.16, 1, 0.3, 1);
+  transform-style: preserve-3d;
+}
+
+/* Content inside a tilting panel needs to stay crisp. Forcing the text layer
+   flat avoids the sub-pixel shimmer you get when type is rendered on a
+   rotated plane. */
+[data-depth-active='true'] > * {
+  transform: translateZ(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-depth-active='true'] {
+    transform: none;
+    transition: none;
+  }
+}
+
+/* Coarse pointers never get the attribute, but belt and braces: a touch device
+   that somehow sets it should not pay for a composited layer. */
+@media (pointer: coarse) {
+  [data-depth-active='true'] {
+    transform: none;
+  }
+}

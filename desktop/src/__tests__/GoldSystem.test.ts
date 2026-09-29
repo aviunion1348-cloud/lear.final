@@ -415,3 +415,61 @@ describe('wizard subsection motion', () => {
     expect(css).toContain('prefers-reduced-motion');
   });
 });
+
+/* =============================================================================
+   ROUND 7 — depth field (pointer-tracked 3D parallax on every panel)
+   ========================================================================== */
+describe('depth field', () => {
+  const tsx = read('src/components/fx/DepthField.tsx');
+  const css = read('src/components/fx/DepthField.css');
+  const app = read('src/App.tsx');
+
+  it('is mounted once, globally', () => {
+    expect(app).toContain('<DepthField />');
+    expect((app.match(/<DepthField \/>/g) ?? []).length).toBe(1);
+  });
+
+  it('uses ONE document listener rather than one per panel', () => {
+    // 40 panels x a listener + state each is how a premium effect becomes a
+    // 30fps view. React must not be involved after mount.
+    const listeners = tsx.match(/addEventListener\('pointermove'/g) ?? [];
+    expect(listeners.length).toBe(1);
+    expect(tsx).toContain('{ passive: true }');
+    expect(tsx).not.toContain('useState');
+  });
+
+  it('throttles to a single rAF and only when the pointer moved', () => {
+    expect(tsx).toContain('if (!raf) raf = requestAnimationFrame(apply)');
+    expect(tsx).toContain('dirty');
+  });
+
+  it('keeps at most one element promoted to its own layer', () => {
+    expect(tsx).toContain("willChange = 'auto'");
+    expect(css).toContain("[data-depth-active='true']");
+    // The transform rule must be scoped to the active panel only.
+    expect(css).not.toMatch(/^\.glass-card \{[^}]*perspective/m);
+  });
+
+  it('defaults to a flat, unchanged panel if the script never runs', () => {
+    expect(css).toContain('--dp-rx: 0deg');
+    expect(css).toContain('--dp-ry: 0deg');
+    expect(css).toContain('--dp-lift: 0px');
+  });
+
+  it('caps tilt below the point where text visibly shears', () => {
+    const max = Number(tsx.match(/MAX_TILT = ([\d.]+)/)?.[1]);
+    expect(max).toBeGreaterThan(0);
+    expect(max).toBeLessThanOrEqual(2.5);
+  });
+
+  it('opts out of reduced motion and coarse pointers', () => {
+    expect(tsx).toContain('prefers-reduced-motion');
+    expect(tsx).toContain('pointer: coarse');
+    expect(css).toContain('prefers-reduced-motion');
+  });
+
+  it('cleans every listener and released style up on unmount', () => {
+    expect(tsx).toContain("removeEventListener('pointermove'");
+    expect(tsx).toContain('cancelAnimationFrame');
+  });
+});

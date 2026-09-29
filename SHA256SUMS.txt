@@ -1,8 +1,9 @@
-# SHA-256 checksums for every published Lear file.
-# Verify:  shasum -a 256 learfinal.zip                    (macOS/Linux)
-#          Get-FileHash .\learfinal.zip -Algorithm SHA256 (Windows)
+# SHA-256 checksums.
+# learfinal.zip is the JOINED archive - see JOIN-ZIP.md.
 
-13cfea292a5813b615893facf8c6edcad5d5faab149aba831184511c959d05f4  learfinal.zip
+0cba6d9d429342304c707716ab2024297271190c2cfb0d3ea0f15963b001f3c5  learfinal.zip.part0
+6da4362f6df5642d7ad10f1ddc8055e12f3bebf05d5f6ef434ac45d45cadf9a0  learfinal.zip.part1
 c382a49a11e2f75648cf20d2d2b9f3980cf6d442ab656b796eef31cf855a9d19  install.ps1
 eba178ce2a2ced253203273372422381c3875df2d9c915f3fc23406ff176ca0d  install.sh
 5402fd6173874e1bc3b8d7e27d902bd7317c1400bc033a7f3dd82b5d9b2ecea8  INSTALL-LEAR.bat
+f48f01dab2c1bf2f00a4c3309ed0245cb80884668384d66222134720cf23ca85  learfinal.zip (joined)

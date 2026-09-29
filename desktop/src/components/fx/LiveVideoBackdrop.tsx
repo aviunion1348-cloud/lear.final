@@ -64,6 +64,16 @@ const PLATES = [
   '/media/plate-crystal.png',
   '/media/plate-rails.png',
   '/media/plate-aurora-gold.png',
+  '/media/plate-gantry.png',
+  '/media/plate-anechoic.png',
+  '/media/plate-spillway.png',
+  '/media/plate-cleanroom.png',
+  '/media/plate-pour.png',
+  '/media/plate-smelter.png',
+  '/media/plate-launch.png',
+  '/media/plate-mirror.png',
+  '/media/plate-archive.png',
+  '/media/plate-dunes.png',
 ];
 // Optional real-video sources (WebM preferred, MP4 fallback). Present = used.
 const VIDEO_SOURCES = [

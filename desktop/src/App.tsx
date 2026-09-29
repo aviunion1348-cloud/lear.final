@@ -21,6 +21,7 @@ import ConsoleIgnition from './components/fx/ConsoleIgnition';
 import SectionTransition from './components/fx/SectionTransition';
 import SubsectionChoreography from './components/fx/SubsectionChoreography';
 import PointerSpotlight from './components/fx/PointerSpotlight';
+import DepthField from './components/fx/DepthField';
 import CommandPalette, { type NavCommand } from './components/fx/CommandPalette';
 import { LearProvider, useLear } from './context/LearContext';
 import { logAnimationRegistry } from './lib/animationRegistry';
@@ -196,6 +197,9 @@ function App() {
         <LiveVideoBackdrop brightness={1.28} />
         <AuroraBackground />
         <PointerSpotlight />
+        {/* Pointer-tracked 3D parallax on every panel. One global
+            listener for the whole document - see DepthField.tsx. */}
+        <DepthField />
         <SoundManager />
         <AtmosphereOverlay />
         <PerfOverlay />
