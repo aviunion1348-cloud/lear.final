@@ -171,12 +171,23 @@ describe('subsection choreography (every panel animates, nothing disappears)', (
   const tsx = read('src/components/fx/SubsectionChoreography.tsx');
   const css = read('src/components/fx/SubsectionChoreography.css');
 
-  it('is fail-visible: only the script ever dims a panel', () => {
-    // The dim is bound to data-sub="pending", which only this module writes.
-    expect(css).toContain("[data-sub='pending']");
-    expect(tsx).toContain("dataset.sub = 'pending'");
-    // No blanket rule may hide subsection content without that attribute.
-    expect(css).not.toMatch(/^\s*\.glass-panel\s*\{[^}]*opacity:\s*0/m);
+  it('is fail-visible: no state in this stylesheet can hide a panel', () => {
+    // Reported bug: entering the console showed a blank screen. The cause
+    // class was pre-dimming panels to opacity 0 and relying on JS to reveal
+    // them. Now nothing is ever dimmed - panels render visible and the reveal
+    // only animates. Guard that the dim never comes back.
+    const pendingRule = css.match(/\[data-sub='pending'\]\s*\{([^}]*)\}/);
+    if (pendingRule) {
+      expect(pendingRule[1]).not.toMatch(/opacity/);
+    }
+    expect(tsx).toContain("dataset.sub = 'pending'"); // bookkeeping only
+  });
+
+  it('reveals from opacity 0 but holds the end state if it never runs', () => {
+    // `both` fill means the final frame sticks; a panel cannot be left mid-fade.
+    const inRule = css.match(/\[data-sub='in'\]\s*\{([^}]*)\}/)?.[1] ?? '';
+    expect(inRule).toContain('both');
+    expect(inRule).not.toMatch(/opacity:\s*0/);
   });
 
   it('has a watchdog that force-reveals anything left pending', () => {

@@ -10,11 +10,22 @@
        frame-ish, and the watchdog force-clears it at 900ms.
    ========================================================================== */
 
-/* ---- pending: parked just off its resting position --------------------- */
-[data-sub='pending'] {
-  opacity: 0.001;
-  transform: translate3d(0, 10px, 0) scale(0.994);
-}
+/* ---- pending: NOTHING. This is deliberate, and it is the whole safety
+   property of this module.
+
+   The first version parked pending elements at opacity 0.001 so they could not
+   be seen before their reveal. That is the textbook approach and it is a trap:
+   it makes "panel is invisible" the DEFAULT state and "panel is visible" a
+   thing the JavaScript has to earn. Any path where the observer doesn't fire -
+   a browser quirk, a container the observer can't see into, an exception
+   earlier in the effect - leaves the user staring at a blank console. That
+   failure was reported, and it is not worth a 340ms cosmetic gain.
+
+   So pending styles nothing. A panel is visible from the moment it renders.
+   The reveal animation below starts from opacity 0 and runs for 340ms; if it
+   never runs, the panel was already correct. The worst case is now "an element
+   appeared without animating", not "the screen is empty".
+   ---------------------------------------------------------------------- */
 
 /* ---- in: the reveal ----------------------------------------------------- */
 [data-sub='in'] {
