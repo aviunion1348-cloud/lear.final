@@ -24,7 +24,7 @@ Prefer double-clicking? Download **[INSTALL-LEAR.bat](https://github.com/aviunio
 curl -fsSL https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/install.sh | bash
 ```
 
-The installer checks Python 3.10+ and Node 18+, downloads `learfinal.zip`,
+The installer checks Python 3.10+ and Node 18+, downloads `leardevop.zip`,
 extracts it, creates a virtualenv, installs both halves, writes `.env`, starts
 the backend and UI, and opens **http://localhost:1420** for you. It installs
 into the current folder, needs no admin, and changes nothing else on your
@@ -38,7 +38,7 @@ machine.
 
 ## 📦 Just the zip
 
-**[`learfinal.zip`](https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/learfinal.zip)** — 33 MB, the complete runnable tree.
+**[`leardevop.zip`](https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/leardevop.zip)** — 33 MB, the complete runnable tree.
 
 Everything you can browse in this repository *is* that zip, extracted. The two
 can never drift apart, because the extracted files are produced by unzipping
@@ -47,8 +47,8 @@ the committed archive.
 Manual route:
 
 ```cmd
-curl -L -o learfinal.zip https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/learfinal.zip
-tar -xf learfinal.zip
+curl -L -o leardevop.zip https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/leardevop.zip
+tar -xf leardevop.zip
 cd lear-premium-ui
 pip install -e ".[dev]"
 copy .env.example .env

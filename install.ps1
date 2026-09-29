@@ -1,14 +1,7 @@
-param(
-  # -Local installs from the checkout you are standing in instead of
-  # downloading the archive, so the browser download-reputation warning
-  # never gets a chance to fire. See INSTALL.md.
-  [switch]$Local
-)
-
 <#
     LEAR — ONE-COMMAND INSTALLER
     ============================================================================
-    Downloads learfinal.zip, extracts it, installs both halves of the stack,
+    Downloads leardevop.zip, extracts it, installs both halves of the stack,
     starts them, and opens the immersive console in your browser.
 
     Run it with a single paste:
@@ -17,7 +10,7 @@ param(
 
     What it actually does (nothing hidden):
       1. checks Python 3.10+ and Node 18+ are present
-      2. downloads learfinal.zip from this repository
+      2. downloads leardevop.zip from this repository
       3. extracts to .\lear-premium-ui
       4. creates a virtualenv and pip-installs the backend
       5. npm-installs the frontend
@@ -33,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 
 $Repo    = 'aviunion1348-cloud/lear.final'
 $Branch  = 'arena/01a0ec0b-lear-final'
-$ZipName = 'learfinal.zip'
+$ZipName = 'leardevop.zip'
 $ZipUrl  = "https://github.com/$Repo/raw/$Branch/$ZipName"
 $Target  = Join-Path (Get-Location) 'lear-premium-ui'
 
@@ -82,20 +75,6 @@ if ([int](($nodeV -replace '^v','') -split '\.')[0] -lt 18) {
 }
 Write-Ok "Node: $nodeV"
 
-if ($Local) {
-    # ---- 2+3. local mode: nothing to download, nothing to extract -----------
-    Write-Host ''
-    Write-Gold '[2/7] Local mode - skipping download'
-    Write-Dim  "      installing from $(Get-Location)"
-    if (-not (Test-Path 'pyproject.toml')) {
-        Write-Err 'Not a Lear checkout: pyproject.toml missing'; return
-    }
-    Write-Ok 'Using existing checkout'
-    Write-Host ''
-    Write-Gold '[3/7] Local mode - skipping extract'
-    Write-Ok 'Nothing to extract'
-} else {
-
 # ---- 2. download ------------------------------------------------------------
 Write-Host ''
 Write-Gold "[2/7] Downloading $ZipName"
@@ -118,7 +97,6 @@ Expand-Archive -Path $zipPath -DestinationPath (Get-Location) -Force
 if (-not (Test-Path $Target)) { Write-Err "Extract failed - $Target not found"; return }
 Write-Ok "Extracted to $Target"
 Set-Location $Target
-}
 
 # ---- 4. python backend ------------------------------------------------------
 Write-Host ''

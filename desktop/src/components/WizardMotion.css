@@ -1,0 +1,227 @@
+/* =============================================================================
+   WIZARD MOTION — every subsection of the connect screen, animated
+   -----------------------------------------------------------------------------
+   Covers the four regions visible on the onboarding screen:
+
+     1. category rail      .wz-cat
+     2. service list       .wz-svc
+     3. credential fields  .wz-field
+     4. the commit button  .wz-commit
+
+   Rules this file follows, because this is a form people type secrets into:
+
+     · Entrances are one-shot and capped at 8 items x 30ms. A 13-connector
+       list cascading at 100ms each would take 1.3s before you could click.
+     · Nothing animates on the element you are typing into. Input focus is a
+       border + shadow change only - no transform, no movement. A field that
+       drifts while you type is a bug, not polish.
+     · Every hover/active effect is transform/opacity/filter, so the whole
+       screen stays on the compositor.
+     · Labels and help text never animate independently of their field, so a
+       form never looks "half arrived".
+   ========================================================================== */
+
+/* ---- shared one-shot entrance ------------------------------------------- */
+@keyframes wz-in {
+  from { opacity: 0; transform: translate3d(-10px, 0, 0); filter: blur(4px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);     filter: blur(0); }
+}
+
+@keyframes wz-in-up {
+  from { opacity: 0; transform: translate3d(0, 10px, 0); filter: blur(4px); }
+  to   { opacity: 1; transform: translate3d(0, 0, 0);    filter: blur(0); }
+}
+
+/* =============================================================================
+   1 + 2. CATEGORY RAIL AND SERVICE LIST
+   ========================================================================== */
+.wz-cat,
+.wz-svc {
+  position: relative;
+  overflow: hidden;
+  animation: wz-in 320ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: var(--wz-delay, 0ms);
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    transform 140ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+/* A 2px gold marker grows from the top edge on hover and fills when active.
+   scaleY on a pseudo-element: no layout, no repaint of the row itself. */
+.wz-cat::before,
+.wz-svc::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: linear-gradient(180deg, transparent, #e8b44a, transparent);
+  transform: scaleY(0);
+  transform-origin: 50% 0%;
+  transition: transform 220ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1));
+}
+
+.wz-cat:hover::before,
+.wz-svc:hover::before { transform: scaleY(0.6); }
+
+.wz-cat[data-active='true']::before,
+.wz-svc[data-active='true']::before { transform: scaleY(1); }
+
+.wz-cat:hover,
+.wz-svc:hover { transform: translate3d(3px, 0, 0); }
+
+/* A gold sheen wipes across the row once when it becomes the active one. */
+.wz-cat[data-active='true']::after,
+.wz-svc[data-active='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 30%,
+    rgba(255, 244, 222, 0.16) 50%,
+    transparent 70%
+  );
+  transform: translate3d(-120%, 0, 0);
+  animation: wz-sheen 620ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1)) both;
+}
+
+@keyframes wz-sheen {
+  to { transform: translate3d(120%, 0, 0); }
+}
+
+/* The service status dot pulses only while its connector is live. */
+.wz-dot {
+  position: relative;
+  transition: box-shadow 200ms ease, transform 200ms ease;
+}
+
+.wz-svc:hover .wz-dot { transform: scale(1.35); }
+
+.wz-dot[data-live='true'] {
+  animation: wz-dot-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes wz-dot-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 180, 74, 0.45); }
+  50%      { box-shadow: 0 0 0 4px rgba(232, 180, 74, 0); }
+}
+
+/* =============================================================================
+   3. CREDENTIAL FIELDS
+   ========================================================================== */
+.wz-field {
+  animation: wz-in-up 300ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both;
+  animation-delay: var(--wz-delay, 0ms);
+}
+
+/* Deliberately NOT transform. The input must not move, scale, or shift while
+   it has focus - you are typing an access key into it. Colour and shadow only. */
+.wz-field input {
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.wz-field input:focus {
+  border-color: rgba(232, 180, 74, 0.6);
+  box-shadow:
+    0 0 0 1px rgba(232, 180, 74, 0.25),
+    0 0 24px -8px rgba(232, 180, 74, 0.5);
+}
+
+/* The label brightens with its own field, so the pair reads as one unit. */
+.wz-field:focus-within label {
+  color: #f2cd7c;
+  transition: color 160ms ease;
+}
+
+/* =============================================================================
+   4. COMMIT BUTTON
+   ========================================================================== */
+.wz-commit {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 140ms var(--ease-spring, cubic-bezier(0.34, 1.56, 0.64, 1)),
+    box-shadow 200ms ease,
+    filter 200ms ease;
+}
+
+.wz-commit:hover:not(:disabled) {
+  transform: translate3d(0, -1px, 0);
+  box-shadow: 0 8px 28px -10px rgba(232, 180, 74, 0.75);
+  filter: brightness(1.06);
+}
+
+.wz-commit:active:not(:disabled) {
+  transform: translate3d(0, 0, 0) scale(0.985);
+}
+
+/* A light charge sweeps across the button on hover - reads as "armed". */
+.wz-commit::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 65%
+  );
+  transform: translate3d(-130%, 0, 0);
+  transition: transform 620ms var(--ease-standard, cubic-bezier(0.2, 0, 0, 1));
+}
+
+.wz-commit:hover:not(:disabled)::after { transform: translate3d(130%, 0, 0); }
+
+/* While a credential is being verified against the live provider API. */
+.wz-commit[data-busy='true'] {
+  animation: wz-busy 1.1s ease-in-out infinite;
+}
+
+@keyframes wz-busy {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(232, 180, 74, 0.5); }
+  50%      { box-shadow: 0 0 22px 2px rgba(232, 180, 74, 0.35); }
+}
+
+/* =============================================================================
+   STATUS FEEDBACK
+   ========================================================================== */
+.wz-verdict {
+  animation: wz-in-up 260ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+.wz-verdict[data-ok='false'] {
+  animation:
+    wz-in-up 260ms var(--ease-decelerate, cubic-bezier(0.16, 1, 0.3, 1)) both,
+    wz-shake 360ms ease 260ms both;
+}
+
+@keyframes wz-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  20%      { transform: translate3d(-4px, 0, 0); }
+  40%      { transform: translate3d(4px, 0, 0); }
+  60%      { transform: translate3d(-2px, 0, 0); }
+  80%      { transform: translate3d(2px, 0, 0); }
+}
+
+/* =============================================================================
+   REDUCED MOTION — everything above collapses to plain, visible, usable.
+   Note every rule is an ENTRANCE or a HOVER; removing them cannot hide
+   anything, which is why this block is a one-liner and not a rewrite.
+   ========================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  .wz-cat, .wz-svc, .wz-field, .wz-verdict,
+  .wz-dot[data-live='true'], .wz-commit[data-busy='true'] {
+    animation: none;
+  }
+  .wz-cat:hover, .wz-svc:hover, .wz-commit:hover:not(:disabled) {
+    transform: none;
+  }
+}

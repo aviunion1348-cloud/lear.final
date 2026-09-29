@@ -13,6 +13,8 @@ import {
   Clock,
 } from 'lucide-react';
 import { useConnectorStatus } from '../hooks/useConnectorStatus';
+import { sfx } from '../lib/soundEngine';
+import './WizardMotion.css';
 
 export interface AuthField {
   key: string;
@@ -197,13 +199,17 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
 
         {/* Dynamic Auth Fields Form */}
         <div className="space-y-4">
-          {connector.auth_fields.map(field => {
+          {connector.auth_fields.map((field, fi) => {
             const isSecret = field.type === 'password' || field.key.toLowerCase().includes('secret') || field.key.toLowerCase().includes('token');
             const isVisible = showSecrets[field.key] || false;
             const hasMasked = Boolean(maskedCredentials[field.key]);
 
             return (
-              <div key={field.key} className="space-y-1.5">
+              <div
+                key={field.key}
+                className="wz-field space-y-1.5"
+                style={{ ['--wz-delay' as string]: `${Math.min(fi, 8) * 30}ms` }}
+              >
                 <div className="flex justify-between items-center text-xs">
                   <label className="font-medium text-gray-300 flex items-center gap-1">
                     {field.label}
@@ -229,6 +235,7 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
                     value={formValues[field.key] || ''}
                     disabled={loading}
                     onChange={e => handleInputChange(field.key, e.target.value)}
+                    onFocus={() => sfx('ui.tap.01', { minGapMs: 120 })}
                     className="w-full bg-surface border border-border-subtle focus:border-accent rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none transition-all font-mono pr-10 disabled:opacity-50"
                   />
 
@@ -258,7 +265,8 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
         {/* Feedback Messages */}
         {(feedback || error) && (
           <div
-            className={`p-3.5 rounded-xl text-xs flex items-start gap-2.5 border ${
+            data-ok={String(feedback?.success ?? !error)}
+            className={`wz-verdict p-3.5 rounded-xl text-xs flex items-start gap-2.5 border ${
               (feedback?.success ?? !error)
                 ? 'bg-accent/10 border-accent/30 text-accent'
                 : 'bg-rose-500/10 border-rose-500/30 text-rose-400'
@@ -339,7 +347,10 @@ export const ConnectorForm: React.FC<ConnectorFormProps> = ({
             <button
               type="submit"
               disabled={loading}
-              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-light text-gray-950 font-bold text-xs transition-all shadow-lg cursor-pointer disabled:opacity-50"
+              data-busy={loading}
+              onMouseEnter={() => sfx('hud.reticle.01', { minGapMs: 200 })}
+              onClick={() => sfx('gold.strike.01')}
+              className="wz-commit flex items-center gap-2 px-5 py-2.5 rounded-xl bg-accent hover:bg-accent-light text-gray-950 font-bold text-xs transition-all shadow-lg cursor-pointer disabled:opacity-50"
             >
               {loading && <Loader2 size={15} className="animate-spin" />}
               {loading

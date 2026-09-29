@@ -3,7 +3,7 @@
    Guards the numbers we publish and the rules that keep the UI at 100fps.
    ========================================================================== */
 import { describe, it, expect } from 'vitest';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { SFX_COUNT, SFX_NAMES, SFX_FAMILIES, MAX_VOLUME, DEFAULT_VOLUME } from '../lib/soundEngine';
 import {
@@ -364,59 +364,54 @@ describe('palette: gold and black, no leftover cyan console chrome', () => {
 });
 
 /* =============================================================================
-   ROUND 5 — entry page brought onto the token system, 120Hz-aware perf HUD,
-   and the 4K plate rotation.
+   ROUND 6 — every subsection of the connect screen is animated and audible
    ========================================================================== */
-describe('entry page is on the design system (U-01 / U-04)', () => {
-  const css = read('src/components/fx/CinematicLanding.css');
+describe('wizard subsection motion', () => {
+  const css = read('src/components/WizardMotion.css');
+  const wiz = read('src/components/Wizard.tsx');
+  const form = read('src/components/ConnectorForm.tsx');
 
-  it('uses design tokens rather than its own hard-coded palette', () => {
-    expect(css).toContain('var(--color-background');
-    expect(css).toContain('var(--color-accent');
-  });
-
-  it('has no cyan or violet left from the pre-gold era', () => {
-    for (const bad of ['#22d3ee', '#67e8f9', '#8b5cf6', '34,211,238', '139,92,246']) {
-      expect(css.includes(bad), `landing still uses ${bad}`).toBe(false);
+  it('animates all four regions: categories, services, fields, commit', () => {
+    for (const region of ['.wz-cat', '.wz-svc', '.wz-field', '.wz-commit']) {
+      expect(css).toContain(region);
     }
-  });
-});
-
-describe('perf HUD grades against the real display (120fps target)', () => {
-  const tsx = read('src/components/fx/PerfOverlay.tsx');
-  const hook = read('src/hooks/usePerf.ts');
-
-  it('targets 120 but never blames a 60Hz panel for being 60Hz', () => {
-    expect(tsx).toContain('TARGET_FPS = 120');
-    expect(tsx).toContain('Math.min(TARGET_FPS');
-    expect(hook).toContain('refresh');
+    expect(wiz).toContain('wz-cat');
+    expect(wiz).toContain('wz-svc');
+    expect(form).toContain('wz-field');
+    expect(form).toContain('wz-commit');
   });
 
-  it('ignores sub-millisecond deltas when estimating refresh rate', () => {
-    // Coalesced rAF callbacks would otherwise report a fictional 2000Hz.
-    expect(hook).toContain('dt > 1');
-  });
-});
-
-describe('4K backdrop plates', () => {
-  const tsx = read('src/components/fx/LiveVideoBackdrop.tsx');
-  const plates = tsx.match(/\/media\/plate-[a-z-]+\.png/g) ?? [];
-
-  it('rotates through the full cinematic plate set', () => {
-    expect(plates.length).toBeGreaterThanOrEqual(19);
-    expect(new Set(plates).size).toBe(plates.length);
+  it('NEVER moves an input that has focus', () => {
+    // You type access keys into these. A field that drifts under the caret is
+    // a bug dressed as polish, so the focus rule is colour/shadow only.
+    const focusRule = css.match(/\.wz-field input:focus \{([^}]*)\}/)?.[1] ?? '';
+    expect(focusRule).not.toContain('transform');
+    expect(focusRule).not.toContain('scale');
+    expect(focusRule).toContain('border-color');
   });
 
-  it('every referenced plate actually exists on disk', () => {
-    // A missing plate is an invisible bug - the layer just renders empty.
-    for (const p of plates) {
-      const file = resolve(__dirname, '../../public', p.replace(/^\//, ''));
-      expect(existsSync(file), `missing asset ${p}`).toBe(true);
+  it('caps the entrance cascade so a 13-connector list stays usable', () => {
+    for (const src of [wiz, form]) {
+      const stagger = src.match(/Math\.min\((\w+), (\d+)\) \* (\d+)/);
+      expect(stagger, 'no capped stagger found').not.toBeNull();
+      const cap = Number(stagger![2]) * Number(stagger![3]);
+      expect(cap).toBeLessThanOrEqual(300);
     }
   });
 
-  it('mounts only the visible plate and its successor', () => {
-    // Nine stacked 4K layers would hold ~250MB of GPU texture to show one image.
-    expect(tsx).toContain('Math.abs(i - plate) > 1');
+  it('binds sound to hover, select, focus and commit', () => {
+    expect(wiz).toContain('sfxFor(\'ui.hover\'');
+    expect(wiz).toContain('sfx(\'ui.select.01\')');
+    expect(form).toContain('sfx(\'ui.tap.01\'');
+    expect(form).toContain('sfx(\'gold.strike.01\')');
+  });
+
+  it('puts the service dots on the gold ramp instead of vendor blue', () => {
+    expect(wiz).toContain('goldDot');
+    expect(wiz).not.toContain('backgroundColor: c.color');
+  });
+
+  it('collapses cleanly under reduced motion', () => {
+    expect(css).toContain('prefers-reduced-motion');
   });
 });

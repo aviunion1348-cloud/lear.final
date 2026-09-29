@@ -2,7 +2,7 @@
 # =============================================================================
 # LEAR — ONE-COMMAND INSTALLER (macOS / Linux)
 # -----------------------------------------------------------------------------
-# Downloads learfinal.zip, extracts it, installs both halves of the stack,
+# Downloads leardevop.zip, extracts it, installs both halves of the stack,
 # starts them, and opens the immersive console.
 #
 # Run it with a single paste:
@@ -15,16 +15,9 @@ set -euo pipefail
 
 REPO="aviunion1348-cloud/lear.final"
 BRANCH="arena/01a0ec0b-lear-final"
-ZIP="learfinal.zip"
+ZIP="leardevop.zip"
 URL="https://github.com/${REPO}/raw/${BRANCH}/${ZIP}"
 TARGET="$(pwd)/lear-premium-ui"
-
-# --local installs from the checkout you are standing in instead of fetching
-# the archive. Browsers never see a download, so the reputation warning that
-# fires on brand-new files never gets a chance to trigger. See INSTALL.md.
-LOCAL=0
-for arg in "$@"; do [ "$arg" = "--local" ] && LOCAL=1; done
-if [ "$LOCAL" = "1" ]; then TARGET="$(pwd)"; fi
 
 GOLD=$'\033[38;5;179m'; DIM=$'\033[2m'; GREEN=$'\033[32m'; RED=$'\033[31m'; OFF=$'\033[0m'
 gold() { printf '%s%s%s\n' "$GOLD" "$1" "$OFF"; }
@@ -63,32 +56,21 @@ ok "Node: $(node --version)"
 
 command -v unzip >/dev/null 2>&1 || { err "unzip not found. Install it (apt install unzip)."; exit 1; }
 
-if [ "$LOCAL" = "1" ]; then
-  # ---- 2+3. local mode: nothing to download, nothing to extract -------------
-  echo; gold '[2/7] Local mode - skipping download'
-  dim  "      installing from $TARGET"
-  [ -f "$TARGET/pyproject.toml" ] || { err "Not a Lear checkout: $TARGET/pyproject.toml missing"; exit 1; }
-  ok "Using existing checkout"
-  echo; gold '[3/7] Local mode - skipping extract'
-  ok "Nothing to extract"
-  cd "$TARGET"
-else
-  # ---- 2. download ----------------------------------------------------------
-  echo; gold "[2/7] Downloading ${ZIP}"; dim "      ${URL}"
-  curl -fL --progress-bar -o "$ZIP" "$URL"
-  ok "Downloaded $(du -h "$ZIP" | cut -f1)"
+# ---- 2. download ------------------------------------------------------------
+echo; gold "[2/7] Downloading ${ZIP}"; dim "      ${URL}"
+curl -fL --progress-bar -o "$ZIP" "$URL"
+ok "Downloaded $(du -h "$ZIP" | cut -f1)"
 
-  # ---- 3. extract -----------------------------------------------------------
-  echo; gold '[3/7] Extracting'
-  if [ -d "$TARGET" ]; then
-    dim "      existing folder found - moving it to lear-premium-ui.bak"
-    rm -rf "${TARGET}.bak"; mv "$TARGET" "${TARGET}.bak"
-  fi
-  unzip -q "$ZIP"
-  [ -d "$TARGET" ] || { err "Extract failed - $TARGET not found"; exit 1; }
-  ok "Extracted to $TARGET"
-  cd "$TARGET"
+# ---- 3. extract -------------------------------------------------------------
+echo; gold '[3/7] Extracting'
+if [ -d "$TARGET" ]; then
+  dim "      existing folder found - moving it to lear-premium-ui.bak"
+  rm -rf "${TARGET}.bak"; mv "$TARGET" "${TARGET}.bak"
 fi
+unzip -q "$ZIP"
+[ -d "$TARGET" ] || { err "Extract failed - $TARGET not found"; exit 1; }
+ok "Extracted to $TARGET"
+cd "$TARGET"
 
 # ---- 4. backend -------------------------------------------------------------
 echo; gold '[4/7] Installing the backend (this takes a minute)'

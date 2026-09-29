@@ -1,9 +1,8 @@
 # SHA-256 checksums for every published Lear file.
 # Verify:  shasum -a 256 learfinal.zip                    (macOS/Linux)
 #          Get-FileHash .\learfinal.zip -Algorithm SHA256 (Windows)
-# A match proves the file is byte-for-byte what was published.
 
-cde35e737613a369dd759680fe722904fbbb4cd1d35fb770f9f158010c6ea047  learfinal.zip
-fedc06f8b2f339c2eeb9ad6bc4a7f7eca0ca8632eabe9737695c26f0e5f5ad2f  install.ps1
-447bfd4ffd4ac1aeaf9658a060aa0154d36e66ad5b4d5eb0b2c6fad0c6cf5b1a  install.sh
-8d01d60ed035e051912d61574ea36897fd0344bd7c11b3f1c5ed144232e8a319  INSTALL-LEAR.bat
+13cfea292a5813b615893facf8c6edcad5d5faab149aba831184511c959d05f4  learfinal.zip
+c382a49a11e2f75648cf20d2d2b9f3980cf6d442ab656b796eef31cf855a9d19  install.ps1
+eba178ce2a2ced253203273372422381c3875df2d9c915f3fc23406ff176ca0d  install.sh
+5402fd6173874e1bc3b8d7e27d902bd7317c1400bc033a7f3dd82b5d9b2ecea8  INSTALL-LEAR.bat

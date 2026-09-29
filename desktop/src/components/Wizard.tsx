@@ -1,7 +1,9 @@
 import { useCallback, useState, useEffect } from 'react';
 import { Cloud, GitBranch, Activity, Shield, Layers, CheckCircle2, Loader2, ArrowRight, Sparkles } from 'lucide-react';
 import ConnectorForm, { type AuthField } from './ConnectorForm';
+import { sfx, sfxFor } from '../lib/soundEngine';
 import './Wizard.css';
+import './WizardMotion.css';
 
 interface Connector {
   id: string;
@@ -12,6 +14,19 @@ interface Connector {
   description: string;
   status: 'configured' | 'unconfigured';
   auth_fields: AuthField[];
+}
+
+/* The service dots used each vendor's brand colour, which put Azure blue,
+   GCP blue and Kubernetes blue back into a console that is deliberately gold
+   and black. They still need to be distinguishable from one another, so this
+   maps each connector onto a fixed step of the gold ramp rather than flattening
+   them all to one colour - configured services get the brightest step. */
+const GOLD_RAMP = ['#e8b44a', '#f2cd7c', '#c9a227', '#f7e7c3', '#a97722', '#d8a441'];
+function goldDot(id: string, configured: boolean): string {
+  if (configured) return '#f7e7c3';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return GOLD_RAMP[Math.abs(h) % GOLD_RAMP.length];
 }
 
 const CATEGORY_META: Record<string, { label: string; icon: any }> = {
@@ -109,19 +124,23 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
               <span className="text-[11px] font-semibold uppercase tracking-wider text-gray-400 px-3 py-1.5 block">
                 Categories
               </span>
-              {categories.map(cat => {
+              {categories.map((cat, ci) => {
                 const meta = CATEGORY_META[cat] || { label: cat, icon: Cloud };
                 const Icon = meta.icon;
                 const isCatActive = activeCategory === cat;
                 return (
                   <button
                     key={cat}
+                    data-active={isCatActive}
+                    style={{ ['--wz-delay' as string]: `${Math.min(ci, 8) * 30}ms` }}
+                    onMouseEnter={() => sfxFor('ui.hover', cat, { minGapMs: 70 })}
                     onClick={() => {
+                      sfx('ui.select.01');
                       setActiveCategory(cat);
                       const firstInCat = connectors.find(c => c.category === cat);
                       if (firstInCat) setSelectedConnectorId(firstInCat.id);
                     }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                    className={`wz-cat w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                       isCatActive
                         ? 'bg-accent/15 text-accent border border-accent/25'
                         : 'text-gray-400 hover:text-white hover:bg-surface'
@@ -141,20 +160,27 @@ export default function Wizard({ onComplete }: { onComplete: (config?: any) => v
               </span>
               {connectors
                 .filter(c => c.category === activeCategory)
-                .map(c => {
+                .map((c, si) => {
                   const isSelected = selectedConnectorId === c.id;
                   return (
                     <button
                       key={c.id}
-                      onClick={() => setSelectedConnectorId(c.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
+                      data-active={isSelected}
+                      style={{ ['--wz-delay' as string]: `${Math.min(si, 8) * 30}ms` }}
+                      onMouseEnter={() => sfxFor('ui.hover', c.id, { minGapMs: 70 })}
+                      onClick={() => { sfx('nav.tab.01'); setSelectedConnectorId(c.id); }}
+                      className={`wz-svc w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition-all ${
                         isSelected
                           ? 'bg-surface-elevated text-white border border-border-hover'
                           : 'text-gray-400 hover:text-white hover:bg-surface'
                       }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full" style={{ backgroundColor: c.color }} />
+                        <span
+                          className="wz-dot w-2 h-2 rounded-full"
+                          data-live={c.status === 'configured'}
+                          style={{ backgroundColor: goldDot(c.id, c.status === 'configured') }}
+                        />
                         <span>{c.name}</span>
                       </div>
                       {c.status === 'configured' && (
