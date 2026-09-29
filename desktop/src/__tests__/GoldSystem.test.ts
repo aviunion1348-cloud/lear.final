@@ -362,3 +362,55 @@ describe('palette: gold and black, no leftover cyan console chrome', () => {
     expect(t).toContain('#e5484d'); // danger
   });
 });
+
+/* =============================================================================
+   ROUND 5 — entry page brought onto the token system, 120Hz-aware perf HUD,
+   and the 4K plate rotation.
+   ========================================================================== */
+describe('entry page is on the design system (U-01 / U-04)', () => {
+  const css = read('src/components/fx/CinematicLanding.css');
+
+  it('uses design tokens rather than its own hard-coded palette', () => {
+    expect(css).toContain('var(--color-background');
+    expect(css).toContain('var(--color-accent');
+  });
+
+  it('has no cyan or violet left from the pre-gold era', () => {
+    for (const bad of ['#22d3ee', '#67e8f9', '#8b5cf6', '34,211,238', '139,92,246']) {
+      expect(css.includes(bad), `landing still uses ${bad}`).toBe(false);
+    }
+  });
+});
+
+describe('perf HUD grades against the real display (120fps target)', () => {
+  const tsx = read('src/components/fx/PerfOverlay.tsx');
+  const hook = read('src/hooks/usePerf.ts');
+
+  it('targets 120 but never blames a 60Hz panel for being 60Hz', () => {
+    expect(tsx).toContain('TARGET_FPS = 120');
+    expect(tsx).toContain('Math.min(TARGET_FPS');
+    expect(hook).toContain('refresh');
+  });
+
+  it('ignores sub-millisecond deltas when estimating refresh rate', () => {
+    // Coalesced rAF callbacks would otherwise report a fictional 2000Hz.
+    expect(hook).toContain('dt > 1');
+  });
+});
+
+describe('4K backdrop plates', () => {
+  const tsx = read('src/components/fx/LiveVideoBackdrop.tsx');
+
+  it('rotates through the full set of gold/black plates', () => {
+    for (const p of ['plate-foundry', 'plate-datacore', 'plate-reactor',
+                     'plate-assembly', 'plate-server-vault', 'plate-topology',
+                     'plate-orbital', 'plate-nebula-gold', 'plate-monolith-gold']) {
+      expect(tsx).toContain(p);
+    }
+  });
+
+  it('mounts only the visible plate and its successor', () => {
+    // Nine stacked 4K layers would hold ~250MB of GPU texture to show one image.
+    expect(tsx).toContain('Math.abs(i - plate) > 1');
+  });
+});

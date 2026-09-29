@@ -1,7 +1,7 @@
 <#
     LEAR — ONE-COMMAND INSTALLER
     ============================================================================
-    Downloads leardevop.zip, extracts it, installs both halves of the stack,
+    Downloads learfinal.zip, extracts it, installs both halves of the stack,
     starts them, and opens the immersive console in your browser.
 
     Run it with a single paste:
@@ -10,7 +10,7 @@
 
     What it actually does (nothing hidden):
       1. checks Python 3.10+ and Node 18+ are present
-      2. downloads leardevop.zip from this repository
+      2. downloads learfinal.zip from this repository
       3. extracts to .\lear-premium-ui
       4. creates a virtualenv and pip-installs the backend
       5. npm-installs the frontend
@@ -26,7 +26,7 @@ $ErrorActionPreference = 'Stop'
 
 $Repo    = 'aviunion1348-cloud/lear.final'
 $Branch  = 'arena/01a0ec0b-lear-final'
-$ZipName = 'leardevop.zip'
+$ZipName = 'learfinal.zip'
 $ZipUrl  = "https://github.com/$Repo/raw/$Branch/$ZipName"
 $Target  = Join-Path (Get-Location) 'lear-premium-ui'
 

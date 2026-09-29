@@ -2,7 +2,7 @@
 # =============================================================================
 # LEAR — ONE-COMMAND INSTALLER (macOS / Linux)
 # -----------------------------------------------------------------------------
-# Downloads leardevop.zip, extracts it, installs both halves of the stack,
+# Downloads learfinal.zip, extracts it, installs both halves of the stack,
 # starts them, and opens the immersive console.
 #
 # Run it with a single paste:
@@ -15,7 +15,7 @@ set -euo pipefail
 
 REPO="aviunion1348-cloud/lear.final"
 BRANCH="arena/01a0ec0b-lear-final"
-ZIP="leardevop.zip"
+ZIP="learfinal.zip"
 URL="https://github.com/${REPO}/raw/${BRANCH}/${ZIP}"
 TARGET="$(pwd)/lear-premium-ui"
 

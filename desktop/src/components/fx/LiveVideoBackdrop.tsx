@@ -25,7 +25,26 @@ import { useEffect, useRef, useState } from 'react';
      • pointer-events: none, aria-hidden — pure decoration
    ========================================================================== */
 
-const PLATES = ['/media/backdrop-nebula.png', '/media/backdrop-grid.png'];
+/* Nine 4K gold/black cinematic plates. The backdrop cross-fades between them
+   with a slow Ken-Burns drift, which is what gives the console a *living*
+   background without shipping (or decoding) a multi-hundred-megabyte video.
+
+   IMPORTANT for performance: only the current plate and the one it is fading
+   to are ever mounted. Rendering all nine as stacked layers would hold nine
+   full-viewport composited textures on the GPU for the life of the session -
+   roughly 9 x (screen area x 4 bytes) of VRAM doing nothing. At 4K that is
+   over 250 MB of texture memory to display one image. */
+const PLATES = [
+  '/media/plate-foundry.png',
+  '/media/plate-datacore.png',
+  '/media/plate-reactor.png',
+  '/media/plate-assembly.png',
+  '/media/plate-server-vault.png',
+  '/media/plate-topology.png',
+  '/media/plate-orbital.png',
+  '/media/plate-nebula-gold.png',
+  '/media/plate-monolith-gold.png',
+];
 // Optional real-video sources (WebM preferred, MP4 fallback). Present = used.
 const VIDEO_SOURCES = [
   { src: '/media/video-hero.webm', type: 'video/webm' },
@@ -114,6 +133,8 @@ export const LiveVideoBackdrop: React.FC<{ brightness?: number }> = ({ brightnes
         </video>
       ) : (
         PLATES.map((src, i) => (
+          // Mount only the visible plate and the one it is fading toward.
+          Math.abs(i - plate) > 1 && !(plate === PLATES.length - 1 && i === 0) ? null : (
           <div
             key={src}
             className="absolute inset-0 gpu-layer"
@@ -130,6 +151,7 @@ export const LiveVideoBackdrop: React.FC<{ brightness?: number }> = ({ brightnes
               willChange: 'opacity, transform',
             }}
           />
+          )
         ))
       )}
 

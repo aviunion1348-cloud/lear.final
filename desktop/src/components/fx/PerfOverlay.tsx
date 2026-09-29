@@ -2,6 +2,13 @@ import { useEffect, useState } from 'react';
 import { usePerf } from '../../hooks/usePerf';
 import { ANIMATION_COUNT } from '../../lib/animationRegistry';
 import { SFX_COUNT } from '../../lib/soundEngine';
+import { MOTION_SPACE } from '../../lib/animationRegistry';
+
+/* Target frame rate. 120 is only reachable on a 120Hz+ display - on a 60Hz
+   panel the browser will never hand us more than 60 frames no matter how
+   cheap our work is, so the HUD grades against the display's own refresh
+   rate rather than flashing red on hardware that is doing nothing wrong. */
+const TARGET_FPS = 120;
 
 /* =============================================================================
    PERF OVERLAY — dev-facing proof of smoothness (toggle: Ctrl/Cmd + Shift + F)
@@ -27,7 +34,11 @@ export const PerfOverlay: React.FC = () => {
 
   if (!on) return null;
 
-  const color = s.fps >= 90 ? '#10b981' : s.fps >= 55 ? '#f59e0b' : '#f43f5e';
+  // Grade against what this display can actually deliver.
+  const ceiling = Math.min(TARGET_FPS, Math.round(s.refresh || TARGET_FPS));
+  const good = ceiling * 0.9;
+  const ok = ceiling * 0.6;
+  const color = s.fps >= good ? '#3fbf7f' : s.fps >= ok ? '#e8b44a' : '#e5484d';
 
   return (
     <div
@@ -36,7 +47,9 @@ export const PerfOverlay: React.FC = () => {
     >
       <div className="flex items-center justify-between gap-4">
         <span className="text-neutral-400">FPS</span>
-        <span style={{ color, fontWeight: 700 }}>{s.fps}</span>
+        <span style={{ color, fontWeight: 700 }}>
+          {s.fps}<span className="text-neutral-500">/{ceiling}</span>
+        </span>
       </div>
       <div className="flex items-center justify-between gap-4">
         <span className="text-neutral-400">low</span>
@@ -50,6 +63,10 @@ export const PerfOverlay: React.FC = () => {
         <div className="flex justify-between gap-4">
           <span>sfx</span>
           <span className="text-neutral-300">{SFX_COUNT}</span>
+        </div>
+        <div className="flex justify-between gap-4">
+          <span>space</span>
+          <span className="text-neutral-300">{MOTION_SPACE.toLocaleString()}</span>
         </div>
       </div>
     </div>
