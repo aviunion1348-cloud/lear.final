@@ -1,24 +1,54 @@
 # Lear — the AI DevOps agent
 
-> **Gold-on-obsidian premium build.** This repository contains the full source
-> tree *and* a one-file download of the exact same build.
+> **Gold-on-obsidian immersive build.** Cinematic landing → Direction sequence →
+> console ignition → every subsection animated. 2,183 animations, 312 procedural
+> sounds, zero audio assets.
 
 ---
 
-## Download & install (one copy-paste)
+## ⚡ One-click install
 
-**The zip lives at the repository root: [`lear-premium-ui-full.zip`](./lear-premium-ui-full.zip)**
+### Windows
 
-Everything you can browse in this repo is that zip, extracted. They are the
-same build — the extracted files were produced by unzipping the committed
-archive, so the download and the browsable source can never drift apart.
+Paste this into **CMD** or **PowerShell** — it downloads, installs and launches everything:
 
-### Windows (CMD)
+```powershell
+powershell -ExecutionPolicy Bypass -c "irm https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.ps1 | iex"
+```
+
+Prefer double-clicking? Download **[INSTALL-LEAR.bat](https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/INSTALL-LEAR.bat)** and run it.
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/aviunion1348-cloud/lear.final/arena/01a0ec0b-lear-final/install.sh | bash
+```
+
+The installer checks Python 3.10+ and Node 18+, downloads `leardevop.zip`,
+extracts it, creates a virtualenv, installs both halves, writes `.env`, starts
+the backend and UI, and opens **http://localhost:1420** for you. It installs
+into the current folder, needs no admin, and changes nothing else on your
+machine.
+
+> **A browser link cannot install software by itself** — that would be a
+> security hole in every OS. The one-liner above is the closest honest
+> equivalent: a single paste that does the whole job unattended.
+
+---
+
+## 📦 Just the zip
+
+**[`leardevop.zip`](https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/leardevop.zip)** — 33 MB, the complete runnable tree.
+
+Everything you can browse in this repository *is* that zip, extracted. The two
+can never drift apart, because the extracted files are produced by unzipping
+the committed archive.
+
+Manual route:
 
 ```cmd
-cd C:\Users\123\Desktop
-curl -L -o lear-premium-ui-full.zip https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/lear-premium-ui-full.zip
-tar -xf lear-premium-ui-full.zip
+curl -L -o leardevop.zip https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/leardevop.zip
+tar -xf leardevop.zip
 cd lear-premium-ui
 pip install -e ".[dev]"
 copy .env.example .env
@@ -26,62 +56,25 @@ npm install
 npm start
 ```
 
-### macOS / Linux
-
-```bash
-curl -L -o lear-premium-ui-full.zip https://github.com/aviunion1348-cloud/lear.final/raw/arena/01a0ec0b-lear-final/lear-premium-ui-full.zip
-unzip lear-premium-ui-full.zip && cd lear-premium-ui
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
-npm install
-npm start
-```
-
-Then open **http://localhost:1420**.
-
-`npm start` runs both halves at once — the FastAPI backend on `:8000` and the
-premium UI on `:1420`, which proxies `/api` and `/ws` to it. Fill in one model
-key (`DEEPSEEK_API_KEY` or `KIMI_API_KEY`) in `.env` when the wizard asks.
-
-### What you get
-
-| | |
-|---|---|
-| Design system | Gold ramp `#E8B44A` on obsidian `#05050a`; full spacing, type, elevation, radius and motion scales |
-| Entry | Cinematic scroll landing → **Direction** sequence (8 VFX layers) → **console ignition** power-on |
-| Console | Every subsection wipes, rises and cascades in, each with its own gold accent temperature |
-| Motion | 2,183 distinct animations, 14,712 tunable instantiations — all transform/opacity/filter only |
-| Audio | 312 procedural sci-fi sounds, 37 families, **zero audio assets**, loud + adjustable |
-| Deploy | `vercel.json` — FastAPI + Vite as two services behind one domain |
-
-See [`TASK_CHECKLIST.md`](./TASK_CHECKLIST.md) for every number and how to
-reproduce it, and [`LEAR_SUPERPROMPT_V3_GOLD.md`](./LEAR_SUPERPROMPT_V3_GOLD.md)
-for the visual, motion, audio and performance law this build follows.
+Then open **http://localhost:1420**. Add one model key (`DEEPSEEK_API_KEY` or
+`KIMI_API_KEY`) to `.env` when the wizard asks.
 
 ---
 
-## Install from git — quick start
+## What you get
 
-```bash
-git clone https://github.com/aviunion1348-cloud/drufiy-prob-changes-.git
-cd drufiy-prob-changes-
-python3 -m venv .venv && source .venv/bin/activate   # Python 3.10+
-pip install -e ".[dev]"                              # CLI + desktop backend + test deps
-cp .env.example .env                                 # fill in one model key
-                                                     # (DEEPSEEK_API_KEY or KIMI_API_KEY)
+| | |
+|---|---|
+| **Design system** | Gold ramp `#E8B44A` on obsidian `#05050a`; full spacing, type, elevation, radius and motion scales |
+| **Entry** | Cinematic scroll landing → **Direction** sequence (8 VFX layers) → **console ignition** power-on |
+| **Console** | Every subsection wipes, rises and cascades in, each with its own gold accent temperature |
+| **Motion** | 2,183 distinct animations, 14,712 tunable instantiations — transform/opacity/filter only |
+| **Audio** | 312 procedural sci-fi sounds, 37 families, **zero audio assets**, loud + adjustable |
+| **Deploy** | `vercel.json` — FastAPI + Vite as two services behind one domain |
 
-# terminal 1 — the desktop app's local backend (API on :8000)
-uvicorn prash.server:app --host 0.0.0.0 --port 8000
-
-# terminal 2 — the premium UI (on :1420, proxies /api + /ws to :8000)
-cd desktop && npm install && npm run dev             # Node 18+
-```
-
-Open **http://localhost:1420** — the onboarding wizard takes it from there.
-The `prash` CLI (`prash repl`, `prash tui`, `prash watch`, …) works from the
-same install — see [The commands](#the-commands). A ready-made download of this
-exact tree is also attached to releases as `lear-premium-ui-full.zip`.
+See **[`TASK_CHECKLIST.md`](./TASK_CHECKLIST.md)** for every number and how to
+reproduce it, and **[`LEAR_SUPERPROMPT_V3_GOLD.md`](./LEAR_SUPERPROMPT_V3_GOLD.md)**
+for the visual, motion, audio and performance law this build follows.
 
 ---
 
